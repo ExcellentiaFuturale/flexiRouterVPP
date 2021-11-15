@@ -1061,8 +1061,8 @@ esp_decrypt_inline (vlib_main_t * vm,
   const u8 esp_sz = sizeof (esp_header_t);
   ipsec_sa_t *sa0 = 0;
   vnet_crypto_op_t _op, *op = &_op;
-  vnet_crypto_op_t **crypto_ops = &ptd->crypto_ops;
-  vnet_crypto_op_t **integ_ops = &ptd->integ_ops;
+  vnet_crypto_op_t **crypto_ops;
+  vnet_crypto_op_t **integ_ops;
   vnet_crypto_async_frame_t *async_frame = 0;
   int is_async = im->async_mode;
   vnet_crypto_async_op_id_t last_async_op = ~0;
@@ -1194,6 +1194,11 @@ esp_decrypt_inline (vlib_main_t * vm,
 
 	  crypto_ops = &ptd->chained_crypto_ops;
 	  integ_ops = &ptd->chained_integ_ops;
+	}
+      else
+	{
+	  crypto_ops = &ptd->crypto_ops;
+	  integ_ops = &ptd->integ_ops;
 	}
 
       pd->current_length = b[0]->current_length;
