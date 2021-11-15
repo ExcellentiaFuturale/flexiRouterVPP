@@ -228,6 +228,7 @@ esp_remove_tail (vlib_main_t * vm, vlib_buffer_t * b, vlib_buffer_t * last,
    return pointer to it */
 static_always_inline u8 *
 esp_move_icv (vlib_main_t * vm, vlib_buffer_t * first,
+	      esp_decrypt_packet_data_t * pd,
 	      esp_decrypt_packet_data2_t * pd2, u16 icv_sz, u16 * dif)
 {
   vlib_buffer_t *before_last, *bp;
@@ -246,6 +247,8 @@ esp_move_icv (vlib_main_t * vm, vlib_buffer_t * first,
   clib_memcpy_fast (lb_curr, vlib_buffer_get_tail (before_last) - first_sz,
 		    first_sz);
   before_last->current_length -= first_sz;
+  if (before_last == first)
+    pd->current_length -= first_sz;
   clib_memset (vlib_buffer_get_tail (before_last), 0, first_sz);
   if (dif)
     dif[0] = first_sz;
@@ -294,11 +297,12 @@ esp_insert_esn (vlib_main_t * vm, ipsec_sa_t * sa,
 
 static_always_inline u8 *
 esp_move_icv_esn (vlib_main_t * vm, vlib_buffer_t * first,
-		  esp_decrypt_packet_data2_t * pd2, u16 icv_sz,
+          esp_decrypt_packet_data_t * pd,
+          esp_decrypt_packet_data2_t * pd2, u16 icv_sz,
 		  ipsec_sa_t * sa, u8 * extra_esn, u32 * len)
 {
   u16 dif = 0;
-  u8 *digest = esp_move_icv (vm, first, pd2, icv_sz, &dif);
+  u8 *digest = esp_move_icv (vm, first, pd, pd2, icv_sz, &dif);
   if (dif)
     *len -= dif;
 
@@ -424,6 +428,7 @@ esp_decrypt_chain_integ (vlib_main_t * vm, ipsec_per_thread_data_t * ptd,
 
 static_always_inline u32
 esp_decrypt_chain_crypto (vlib_main_t * vm, ipsec_per_thread_data_t * ptd,
+			  esp_decrypt_packet_data_t * pd,
 			  esp_decrypt_packet_data2_t * pd2,
 			  ipsec_sa_t * sa0, vlib_buffer_t * b, u8 icv_sz,
 			  u8 * start, u32 start_len, u8 ** tag, u16 * n_ch)
@@ -450,7 +455,7 @@ esp_decrypt_chain_crypto (vlib_main_t * vm, ipsec_per_thread_data_t * ptd,
 	      if (pd2->lb->current_length < icv_sz)
 		{
 		  u16 dif = 0;
-		  *tag = esp_move_icv (vm, b, pd2, icv_sz, &dif);
+		  *tag = esp_move_icv (vm, b, pd, pd2, icv_sz, &dif);
 
 		  /* this chunk does not contain crypto data */
 		  n_chunks -= 1;
@@ -532,7 +537,7 @@ esp_decrypt_prepare_sync_op (vlib_main_t * vm, vlib_node_runtime_t * node,
 	    {
 	      u8 extra_esn = 0;
 	      op->digest =
-		esp_move_icv_esn (vm, b, pd2, icv_sz, sa0,
+		esp_move_icv_esn (vm, b, pd, pd2, icv_sz, sa0,
 				  &extra_esn, &op->len);
 
 	      if (extra_esn)
@@ -622,7 +627,7 @@ esp_decrypt_prepare_sync_op (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  /* buffer is chained */
 	  op->flags |= VNET_CRYPTO_OP_FLAG_CHAINED_BUFFERS;
 	  op->chunk_index = vec_len (ptd->chunks);
-	  esp_decrypt_chain_crypto (vm, ptd, pd2, sa0, b, icv_sz,
+	  esp_decrypt_chain_crypto (vm, ptd, pd, pd2, sa0, b, icv_sz,
 				    payload, len - pd->iv_sz + pd->icv_sz,
 				    &op->tag, &op->n_chunks);
 	}
@@ -672,7 +677,7 @@ esp_decrypt_prepare_async_frame (vlib_main_t * vm,
 	  if (pd2->lb->current_length < icv_sz)
 	    {
 	      u8 extra_esn = 0;
-	      tag = esp_move_icv_esn (vm, b, pd2, icv_sz, sa0,
+	      tag = esp_move_icv_esn (vm, b, pd, pd2, icv_sz, sa0,
 				      &extra_esn, &integ_len);
 
 	      if (extra_esn)
@@ -754,7 +759,7 @@ out:
       /* buffer is chained */
       flags |= VNET_CRYPTO_OP_FLAG_CHAINED_BUFFERS;
 
-      crypto_len = esp_decrypt_chain_crypto (vm, ptd, pd2, sa0, b, icv_sz,
+      crypto_len = esp_decrypt_chain_crypto (vm, ptd, pd, pd2, sa0, b, icv_sz,
 					     payload,
 					     len - pd->iv_sz + pd->icv_sz,
 					     &tag, 0);
