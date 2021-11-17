@@ -2881,6 +2881,9 @@ unix_cli_file_add (unix_cli_main_t * cm, char *name, int fd)
 {
   unix_main_t *um = &unix_main;
   clib_file_main_t *fm = &file_main;
+#ifdef FLEXIWAN_FIX
+  vlib_node_main_t *nm = &vlib_get_main ()->node_main;
+#endif /*FLEXIWAN_FIX*/
   unix_cli_file_t *cf;
   clib_file_t template = { 0 };
   vlib_main_t *vm = um->vlib_main;
@@ -2913,12 +2916,12 @@ unix_cli_file_add (unix_cli_main_t * cm, char *name, int fd)
 			     cm->unused_cli_process_node_indices[l - 1]);
 	  old_name = n->name;
 	  n->name = (u8 *) name;
-#ifdef FLEXIWAN_FIX
-    vlib_node_main_t *this_nm = &this_vlib_main->node_main;
-    hash_unset(this_nm->node_by_name, old_name);
-    hash_set (this_nm->node_by_name, n->name, n->index);
-#endif /* FLEXIWAN_FIX */
 	}
+#ifdef FLEXIWAN_FIX
+      ASSERT (old_name);
+      hash_unset(nm->node_by_name, old_name);
+      hash_set (nm->node_by_name, n->name, n->index);
+#endif /*FLEXIWAN_FIX*/
       vec_free (old_name);
 
       vlib_node_set_state (vm, n->index, VLIB_NODE_STATE_POLLING);
