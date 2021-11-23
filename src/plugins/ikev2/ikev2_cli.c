@@ -12,6 +12,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Print IKEv2 connection state in show command.
+ */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vppinfra/error.h>
@@ -135,6 +142,18 @@ format_ikev2_sa (u8 * s, va_list * va)
 	      format_ip_address, &sa->raddr, sa->rspi);
   if (!details)
     return s;
+
+#ifdef FLEXIWAN_FEATURE
+  static char *stateNames[] = {
+#define _(v,f,s) s,
+    foreach_ikev2_state
+#undef _
+  };
+
+  if (sa->state <= IKEV2_STATE_NO_PROPOSAL_CHOSEN) {
+    s = format (s, "\n state: %s", stateNames[sa->state]);
+  }
+#endif /* FLEXIWAN_FEATURE */
 
   s = format (s, "\n%U", format_white_space, indent);
 
