@@ -12,6 +12,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Extended IKEv2 state enum with strings.
+ */
+
 #ifndef __included_ikev2_priv_h__
 #define __included_ikev2_priv_h__
 
@@ -184,6 +191,24 @@ do {                                                                          \
 #define ikev2_log_debug(...) \
   vlib_log(VLIB_LOG_LEVEL_DEBUG, ikev2_main.log_class, __VA_ARGS__)
 
+#ifdef FLEXIWAN_FEATURE
+#define foreach_ikev2_state \
+ _( 0, UNKNOWN,   "UNKNOWN")    \
+ _( 1, SA_INIT,   "SA_INIT")        \
+ _( 2, DELETED,        "DELETED")      \
+ _( 3, AUTH_FAILED,   "AUTH_FAILED")    \
+ _( 4, AUTHENTICATED,     "AUTHENTICATED") \
+ _( 5, NOTIFY_AND_DELETE,   "NOTIFY_AND_DELETE") \
+ _( 6, TS_UNACCEPTABLE,     "TS_UNACCEPTABLE") \
+ _( 7, NO_PROPOSAL_CHOSEN,  "NO_PROPOSAL_CHOSEN")
+
+typedef enum
+{
+#define _(v,f,s) IKEV2_STATE_##f = v,
+  foreach_ikev2_state
+#undef _
+} ikev2_state_t;
+#else /* FLEXIWAN_FEATURE */
 typedef enum
 {
   IKEV2_STATE_UNKNOWN,
@@ -195,6 +220,7 @@ typedef enum
   IKEV2_STATE_TS_UNACCEPTABLE,
   IKEV2_STATE_NO_PROPOSAL_CHOSEN,
 } ikev2_state_t;
+#endif /* FLEXIWAN_FEATURE */
 
 typedef struct
 {
