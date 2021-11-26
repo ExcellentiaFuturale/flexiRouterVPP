@@ -284,6 +284,8 @@ ikev2_sa_get_child (ikev2_sa_t * sa, u32 spi, ikev2_protocol_id_t prot_id,
   {
     ikev2_sa_proposal_t *proposal =
       by_initiator ? &c->i_proposals[0] : &c->r_proposals[0];
+      clib_warning("c->i_proposals[0].spi %x, c->r_proposals[0].spi %x", c->i_proposals[0].spi, c->r_proposals[0].spi);
+      clib_warning("spi %x, proposal->spi %x, prot_id %u, proposal->protocol_id %u", spi, proposal->spi, prot_id, proposal->protocol_id);
     if (proposal && proposal->spi == spi && proposal->protocol_id == prot_id)
       return c;
   }
@@ -2480,7 +2482,7 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
     {
       if (sa->is_initiator)
 	{
-
+    clib_warning("IKEV2_EXCHANGE_CREATE_CHILD_SA and sa->is_initiator");
 	  ikev2_sa_proposal_t *proposals = (ikev2_sa_proposal_t *) user;
 	  ikev2_notify_t notify;
 	  u8 *data = vec_new (u8, 4);
@@ -2500,6 +2502,7 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
 	}
       else
 	{
+    clib_warning("IKEV2_EXCHANGE_CREATE_CHILD_SA and !sa->is_initiator");
 	  if (vec_len (sa->rekey) > 0)
 	    {
 	      ikev2_payload_add_sa (chain, sa->rekey[0].r_proposal);
@@ -3252,6 +3255,7 @@ ikev2_node_internal (vlib_main_t * vm,
 
 	      if (sa0->rekey)
 		{
+      clib_warning("sa0->rekey");
 		  if (sa0->rekey[0].protocol_id != IKEV2_PROTOCOL_IKE)
 		    {
 		      if (sa0->childs)
@@ -3272,6 +3276,7 @@ ikev2_node_internal (vlib_main_t * vm,
 		    }
 		  else
 		    {
+          clib_warning("sa0->rekey");
 		      ike0->flags = IKEV2_HDR_FLAG_RESPONSE;
 		      slen = ikev2_generate_message (b0, sa0, ike0, 0, udp0);
 		      if (~0 == slen)
