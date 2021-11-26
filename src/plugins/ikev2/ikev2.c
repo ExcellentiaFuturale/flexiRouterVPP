@@ -1462,7 +1462,7 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
     }
 
   if (sa->is_initiator && proposal
-      && proposal->protocol_id == IKEV2_PROTOCOL_ESP)
+      && proposal->protocol_id == IKEV2_PROTOCOL_ESP && ike_hdr_is_response (ike))
     {
       ikev2_rekey_t *rekey = sa->rekey;
       clib_warning("rekey %p", rekey);
@@ -1489,7 +1489,7 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
   else if (rekeying)
     {
       ikev2_rekey_t *rekey;
-      child_sa = ikev2_sa_get_child (sa, n->spi, n->protocol_id, 1);
+      child_sa = ikev2_sa_get_child (sa, n->spi, n->protocol_id, !sa->is_initiator);
       if (!child_sa)
 	{
 	  ikev2_elog_uint (IKEV2_LOG_ERROR, "child SA spi %lx not found",
