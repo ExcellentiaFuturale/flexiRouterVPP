@@ -5073,6 +5073,11 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
               sa->state == IKEV2_STATE_NO_PROPOSAL_CHOSEN){
             vec_add1 (to_be_deleted, sa - tkm->sas);
           }
+          else if (sa->state == IKEV2_STATE_SA_INIT) {
+            if (vec_len(sa->childs) > 0) {
+              vec_add1 (to_be_deleted, sa - tkm->sas);
+            }
+          }
           else {
 #endif /* FLEXIWAN_FIX */
           if (sa->state != IKEV2_STATE_AUTHENTICATED)
