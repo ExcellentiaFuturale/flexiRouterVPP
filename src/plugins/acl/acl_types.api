@@ -14,6 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Extend ACL rule with new fields service_class and importance. They are used as dictionary for matched packets
+ *     and not used for matching conditions.
+ */
+
 option version = "1.0.0";
 
 import "vnet/ip/ip_types.api";
@@ -37,6 +45,8 @@ enum acl_action : u8
     @param dstport_or_icmpcode_last - end of destination port or ICMP4/6 code range
     @param tcp_flags_mask - if proto==6, match masked TCP flags with this value
     @param tcp_flags_value - if proto==6, mask to AND the TCP flags in the packet with
+    @param service_class - traffic service class for configured rule
+    @param importance - traffic importance for configured rule
 */
 
 typedef acl_rule
@@ -69,6 +79,10 @@ typedef acl_rule
  */
   u8 tcp_flags_mask;
   u8 tcp_flags_value;
+/* #ifdef FLEXIWAN_FEATURE */
+  u8 service_class;
+  u8 importance;
+/* #endif FLEXIWAN_FEATURE */
 };
 
 
