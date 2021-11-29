@@ -13,6 +13,13 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Extend ACL rule with new fields service_class and importance. They are used as dictionary for matched packets
+ *     and not used for matching conditions.
+ */
+
 #include <stddef.h>
 
 #include <vnet/vnet.h>
@@ -192,6 +199,10 @@ acl_print_acl_x (acl_vector_print_func_t vpr, vlib_main_t * vm,
 	    format (out0, " tcpflags %d mask %d", r->tcp_flags_value,
 		    r->tcp_flags_mask);
 	}
+#ifdef FLEXIWAN_FEATURE
+      out0 = format (out0, " class %d", r->service_class);
+      out0 = format (out0, " level %d", r->importance);
+#endif /* FLEXIWAN_FEATURE */
       out0 = format (out0, "\n");
       vpr (vm, out0);
     }
@@ -381,6 +392,10 @@ acl_add_list (u32 count, vl_api_acl_rule_t rules[],
       r->dst_port_or_code_last = ntohs (rules[i].dstport_or_icmpcode_last);
       r->tcp_flags_value = rules[i].tcp_flags_value;
       r->tcp_flags_mask = rules[i].tcp_flags_mask;
+#ifdef FLEXIWAN_FEATURE
+      r->service_class = rules[i].service_class;
+      r->importance = rules[i].importance;
+#endif /* FLEXIWAN_FEATURE */
     }
 
   if (~0 == *acl_list_index)
@@ -1916,6 +1931,10 @@ copy_acl_rule_to_api_rule (vl_api_acl_rule_t * api_rule, acl_rule_t * r)
   api_rule->dstport_or_icmpcode_last = htons (r->dst_port_or_code_last);
   api_rule->tcp_flags_mask = r->tcp_flags_mask;
   api_rule->tcp_flags_value = r->tcp_flags_value;
+#ifdef FLEXIWAN_FEATURE
+  api_rule->service_class = r->service_class;
+  api_rule->importance = r->importance;
+#endif /* FLEXIWAN_FEATURE */
 }
 
 static void
@@ -2828,7 +2847,15 @@ acl_set_aclplugin_acl_fn (vlib_main_t * vm,
   u32 tcpflags, tcpmask;
   u32 src_prefix_length = 0, dst_prefix_length = 0;
   ip46_address_t src, dst;
+#ifdef FLEXIWAN_FEATURE
+  u8 tag[64];
+  u8 service_class = 0;
+  u8 importance = 0;
+
+  clib_memset (tag, 0, sizeof (tag));
+#else /* FLEXIWAN_FEATURE */
   u8 *tag = (u8 *) "cli";
+#endif /* FLEXIWAN_FEATURE */
 
   if (!unformat_user (input, unformat_line_input, line_input))
     return 0;
@@ -2921,6 +2948,18 @@ acl_set_aclplugin_acl_fn (vlib_main_t * vm,
 	  vec_validate_acl_rules (rules, rule_idx);
 	  rules[rule_idx].proto = proto;
 	}
+#ifdef FLEXIWAN_FEATURE
+      else if (unformat (line_input, "class %d", &service_class))
+	{
+	  vec_validate_acl_rules (rules, rule_idx);
+    rules[rule_idx].service_class = service_class;
+	}
+      else if (unformat (line_input, "level %d", &importance))
+	{
+	  vec_validate_acl_rules (rules, rule_idx);
+    rules[rule_idx].importance = importance;
+	}
+#endif /* FLEXIWAN_FEATURE */
       else if (unformat (line_input, "tag %s", &tag))
 	{
 	}

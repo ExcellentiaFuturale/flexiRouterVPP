@@ -464,15 +464,6 @@ typedef enum
   FWABF_N_ERROR,
 } fwabf_error_t;
 
-static fwabf_quality_service_class_t fwabf_acl_tag_to_sc (u8 * tag)
-{
-   /* Service Class and Importance are passed via ACL tag field in the next format: {9:0} - {Service Class:Importance} */
-    fwabf_quality_service_class_t sc = tag[0] - '0';
-    if (sc <= FWABF_QUALITY_SC_MIN || sc >= FWABF_QUALITY_SC_MAX)
-       return FWABF_QUALITY_SC_STANDARD;
-    return sc;
-}
-
 static uword
 fwabf_input_ip4 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 {
@@ -603,7 +594,12 @@ fwabf_input_ip4 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                   *  follow the DPO chain if available. Otherwise fallback to feature arc.
                   */
                   acl_main_t *am = acl_plugin.p_acl_main;
-                  fwabf_quality_service_class_t sc = fwabf_acl_tag_to_sc (am->acls[match_acl_index].tag);
+                  fwabf_quality_service_class_t sc = am->acls[match_acl_index].rules[match_rule_index].service_class;
+                  if (sc <= FWABF_QUALITY_SC_MIN || sc >= FWABF_QUALITY_SC_MAX) {
+                    clib_warning("wrong value for service class %d must be in range from %d to %d",
+                                sc, FWABF_QUALITY_SC_MIN, FWABF_QUALITY_SC_MAX);
+                    sc = FWABF_QUALITY_SC_STANDARD;
+                  }
                   fia0 = fwabf_itf_attach_get (attachments0[match_acl_pos]);
                   match0 = fwabf_policy_get_dpo (fia0->fia_policy, b0, lb0, sc, DPO_PROTO_IP4, &dpo0_policy);
                   if (PREDICT_TRUE(match0))
@@ -778,7 +774,12 @@ fwabf_input_ip6 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                   *  follow the DPO chain if available. Otherwise fallback to feature arc.
                   */
                   acl_main_t *am = acl_plugin.p_acl_main;
-                  fwabf_quality_service_class_t sc = fwabf_acl_tag_to_sc (am->acls[match_acl_index].tag);
+                  fwabf_quality_service_class_t sc = am->acls[match_acl_index].rules[match_rule_index].service_class;
+                  if (sc <= FWABF_QUALITY_SC_MIN || sc >= FWABF_QUALITY_SC_MAX) {
+                    clib_warning("wrong value for service class %d must be in range from %d to %d",
+                                sc, FWABF_QUALITY_SC_MIN, FWABF_QUALITY_SC_MAX);
+                    sc = FWABF_QUALITY_SC_STANDARD;
+                  }
                   fia0 = fwabf_itf_attach_get (attachments0[match_acl_pos]);
                   match0 = fwabf_policy_get_dpo (fia0->fia_policy, b0, lb0, sc, DPO_PROTO_IP6, &dpo0_policy);
                   if (PREDICT_TRUE(match0))

@@ -12,6 +12,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Extend ACL rule with new fields service_class and importance. They are used as dictionary for matched packets
+ *     and not used for matching conditions.
+ */
+
 #ifndef included_acl_types_h
 #define included_acl_types_h
 
@@ -33,6 +41,10 @@ typedef struct
   u16 dst_port_or_code_last;
   u8 tcp_flags_value;
   u8 tcp_flags_mask;
+#ifdef FLEXIWAN_FEATURE
+  u8 service_class;
+  u8 importance;
+#endif /* FLEXIWAN_FEATURE */
 } acl_rule_t;
 
 
