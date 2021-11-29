@@ -1451,8 +1451,13 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
       p += plen;
     }
 
+#ifdef FLEXIWAN_FIX
   if (sa->is_initiator && proposal
       && proposal->protocol_id == IKEV2_PROTOCOL_ESP && ike_hdr_is_response (ike))
+#else
+  if (sa->is_initiator && proposal
+      && proposal->protocol_id == IKEV2_PROTOCOL_ESP)
+#endif /* FLEXIWAN_FIX */
     {
       ikev2_rekey_t *rekey = sa->rekey;
       if (vec_len (rekey) == 0)
@@ -1476,7 +1481,11 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
   else if (rekeying)
     {
       ikev2_rekey_t *rekey;
+#ifdef FLEXIWAN_FIX
       child_sa = ikev2_sa_get_child (sa, n->spi, n->protocol_id, !sa->is_initiator);
+#else
+      child_sa = ikev2_sa_get_child (sa, n->spi, n->protocol_id, 1);
+#endif /* FLEXIWAN_FIX */
       if (!child_sa)
 	{
 	  ikev2_elog_uint (IKEV2_LOG_ERROR, "child SA spi %lx not found",
@@ -1486,6 +1495,7 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
       vec_add2 (sa->rekey, rekey, 1);
       rekey->protocol_id = n->protocol_id;
       rekey->spi = n->spi;
+#ifdef FLEXIWAN_FIX
   if (!ike_hdr_is_response (ike))
   {
       rekey->r_proposal = proposal;
@@ -1494,10 +1504,13 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
   }
   else
   {
+#endif /* FLEXIWAN_FIX */
       rekey->i_proposal = proposal;
       rekey->r_proposal =
 	ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
+#ifdef FLEXIWAN_FIX
   }
+#endif /* FLEXIWAN_FIX */
       rekey->tsi = tsi;
       rekey->tsr = tsr;
       /* update Ni */
@@ -2476,7 +2489,11 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
     }
   else if (ike->exchange == IKEV2_EXCHANGE_CREATE_CHILD_SA)
     {
+#ifdef FLEXIWAN_FIX
       if (sa->is_initiator && !ike_hdr_is_response (ike))
+#else
+      if (sa->is_initiator)
+#endif /* FLEXIWAN_FIX */
 	{
 
 	  ikev2_sa_proposal_t *proposals = (ikev2_sa_proposal_t *) user;
