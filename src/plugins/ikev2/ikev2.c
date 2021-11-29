@@ -1499,9 +1499,18 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
       vec_add2 (sa->rekey, rekey, 1);
       rekey->protocol_id = n->protocol_id;
       rekey->spi = n->spi;
+  if (!ike_hdr_is_response (ike))
+  {
+      rekey->r_proposal = proposal;
+      rekey->i_proposal =
+	ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
+  }
+  else
+  {
       rekey->i_proposal = proposal;
       rekey->r_proposal =
 	ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
+  }
       rekey->tsi = tsi;
       rekey->tsr = tsr;
       /* update Ni */
@@ -2480,7 +2489,7 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
     }
   else if (ike->exchange == IKEV2_EXCHANGE_CREATE_CHILD_SA)
     {
-      if (sa->is_initiator)
+      if (sa->is_initiator && !ike_hdr_is_response (ike))
 	{
     clib_warning("IKEV2_EXCHANGE_CREATE_CHILD_SA and sa->is_initiator");
 	  ikev2_sa_proposal_t *proposals = (ikev2_sa_proposal_t *) user;
