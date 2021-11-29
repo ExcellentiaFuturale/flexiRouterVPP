@@ -22,6 +22,7 @@
  *   - Reinitiate connection on rekeying failure due to missing PFS (Perfect Forward Secrecy) feature.
  *   - Wake up manager task in case if child sa was deleted to speed up recovery from failed connection.
  *   - Do not ignore requests with msg_id 0. Such id means that another side restarted counting.
+ *   - Fixed processing of CREATE_CHILD_SA by initiator.
  */
 
 #include <vlib/vlib.h>
