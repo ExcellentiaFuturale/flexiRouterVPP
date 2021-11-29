@@ -120,34 +120,76 @@ do {                                                                          \
 #define IKE_ELOG_IP4_FMT "%d.%d.%d.%d"
 #define IKE_ELOG_IP6_FMT "[v6]:%x%x:%x%x"
 
-#define ikev2_elog_exchange clib_warning
+#define ikev2_elog_exchange(_fmt, _ispi, _rspi, _addr, _v4)                   \
+do {                                                                          \
+  if (_v4)                                                                    \
+    ikev2_elog_exchange_internal (_fmt IKE_ELOG_IP4_FMT, _ispi, _rspi, _addr);\
+  else                                                                        \
+    ikev2_elog_exchange_internal (_fmt IKE_ELOG_IP6_FMT, _ispi, _rspi, _addr);\
+} while (0)
 
 #define ikev2_elog_uint(_level, _format, _val)                                \
 do {                                                                          \
-  clib_warning(_format, _val);                                                \
+  ikev2_main_t *km = &ikev2_main;                                             \
+  if (PREDICT_FALSE (km->log_level >= _level))                                \
+    {                                                                         \
+      ELOG_TYPE_DECLARE (e) =                                                 \
+        {                                                                     \
+          .format = "ikev2: " _format,                                        \
+          .format_args = "i8",                                                \
+        };                                                                    \
+      CLIB_PACKED(struct                                                      \
+        {                                                                     \
+          u64 val;                                                            \
+        }) *ed;                                                               \
+      ed = ELOG_DATA (&vlib_global_main.elog_main, e);                        \
+      ed->val = _val;                                                         \
+    }                                                                         \
 } while (0)
 
 #define ikev2_elog_uint_peers(_level, _format, _val, _ip1, _ip2)              \
 do {                                                                          \
-  clib_warning(_format, _val, _ip1, _ip2);                                    \
+  ikev2_main_t *km = &ikev2_main;                                             \
+  if (PREDICT_FALSE (km->log_level >= _level))                                \
+    {                                                                         \
+      ELOG_TYPE_DECLARE (e) =                                                 \
+        {                                                                     \
+          .format = "ikev2: " _format,                                        \
+          .format_args = "i8i1i1i1i1i1i1i1i1",                                \
+        };                                                                    \
+      CLIB_PACKED(struct {                                                    \
+        u64 val;                                                              \
+        u8 i11; u8 i12; u8 i13; u8 i14;                                       \
+        u8 i21; u8 i22; u8 i23; u8 i24; }) *ed;                               \
+      ed = ELOG_DATA (&vlib_global_main.elog_main, e);                        \
+      ed->val = _val;                                                         \
+      ed->i14 = (_ip1) >> 24;                                                 \
+      ed->i13 = (_ip1) >> 16;                                                 \
+      ed->i12 = (_ip1) >> 8;                                                  \
+      ed->i11 = (_ip1);                                                       \
+      ed->i24 = (_ip2) >> 24;                                                 \
+      ed->i23 = (_ip2) >> 16;                                                 \
+      ed->i22 = (_ip2) >> 8;                                                  \
+      ed->i21 = (_ip2);                                                       \
+    }                                                                         \
 } while (0)
 
 #define ikev2_elog_error(_msg) \
-  clib_warning("[error] " _msg)
+  _ikev2_elog(IKEV2_LOG_ERROR, "[error] " _msg)
 #define ikev2_elog_warning(_msg) \
-  clib_warning("[warning] " _msg)
+  _ikev2_elog(IKEV2_LOG_WARNING, "[warning] " _msg)
 #define ikev2_elog_debug(_msg) \
-  clib_warning("[debug] " _msg)
+  _ikev2_elog(IKEV2_LOG_DEBUG, "[debug] " _msg)
 #define ikev2_elog_detail(_msg) \
-  clib_warning("[detail] " _msg)
+  _ikev2_elog(IKEV2_LOG_DETAIL, "[detail] " _msg)
 
 /* logging for main thread */
 #define ikev2_log_error(...) \
-  clib_warning(__VA_ARGS__)
+  vlib_log(VLIB_LOG_LEVEL_ERR, ikev2_main.log_class, __VA_ARGS__)
 #define ikev2_log_warning(...) \
-  clib_warning(__VA_ARGS__)
+  vlib_log(VLIB_LOG_LEVEL_WARNING, ikev2_main.log_class, __VA_ARGS__)
 #define ikev2_log_debug(...) \
-  clib_warning(__VA_ARGS__)
+  vlib_log(VLIB_LOG_LEVEL_DEBUG, ikev2_main.log_class, __VA_ARGS__)
 
 #ifdef FLEXIWAN_FEATURE
 #define foreach_ikev2_state \
@@ -221,7 +263,7 @@ typedef struct
 typedef struct
 {
   u8 proposal_num;
-  u8 protocol_id;
+  ikev2_protocol_id_t protocol_id:8;
   u32 spi;
   ikev2_sa_transform_t *transforms;
 } ikev2_sa_proposal_t;

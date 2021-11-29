@@ -1439,14 +1439,6 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
 	{
 	  tsr = ikev2_parse_ts_payload (ikep, current_length);
 	}
-     else if (payload == IKEV2_PAYLOAD_KE)
-  {
-	  if (!ikev2_parse_ke_payload (ikep, current_length, sa, &sa->i_dh_data))
-      {
-        ikev2_elog_error ("Could not parse IKEV2_PAYLOAD_KE");
-        goto cleanup_and_exit;
-      }
-	}
       else
 	{
 	  ikev2_elog_uint (IKEV2_LOG_ERROR, "Unknown payload! type=%d",
@@ -1465,11 +1457,8 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
       && proposal->protocol_id == IKEV2_PROTOCOL_ESP && ike_hdr_is_response (ike))
     {
       ikev2_rekey_t *rekey = sa->rekey;
-      clib_warning("rekey %p", rekey);
-      if (vec_len (rekey) == 0) {
-        clib_warning("goto cleanup_and_exit");
+      if (vec_len (rekey) == 0)
 	goto cleanup_and_exit;
-      }
       rekey->protocol_id = proposal->protocol_id;
       rekey->i_proposal =
 	ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
@@ -3003,12 +2992,10 @@ ikev2_node_internal (vlib_main_t * vm,
 		    }
 
 		  res = ikev2_process_sa_init_req (vm, sa0, ike0, udp0, rlen);
-		  if (!res) {
-        clib_warning("IKEV2_ERROR_MALFORMED_PACKET");
+		  if (!res)
 		    vlib_node_increment_counter (vm, node->node_index,
 						 IKEV2_ERROR_MALFORMED_PACKET,
 						 1);
-      }
 
 		  if (sa0->state == IKEV2_STATE_SA_INIT)
 		    {
@@ -3127,11 +3114,9 @@ ikev2_node_internal (vlib_main_t * vm,
 	      res = ikev2_process_auth_req (vm, sa0, ike0, rlen);
 	      if (res)
 		ikev2_sa_auth (sa0);
-	      else {
-    clib_warning("IKEV2_ERROR_MALFORMED_PACKET");
+	      else
 		vlib_node_increment_counter (vm, node->node_index,
 					     IKEV2_ERROR_MALFORMED_PACKET, 1);
-        }
 	      if (sa0->state == IKEV2_STATE_AUTHENTICATED)
 		{
 		  ikev2_initial_contact_cleanup (ptd, sa0);
@@ -3180,7 +3165,6 @@ ikev2_node_internal (vlib_main_t * vm,
 	      res = ikev2_process_informational_req (vm, sa0, ike0, rlen);
 	      if (!res)
 		{
-      clib_warning("IKEV2_ERROR_MALFORMED_PACKET");
 		  vlib_node_increment_counter (vm, node->node_index,
 					       IKEV2_ERROR_MALFORMED_PACKET,
 					       1);
@@ -3253,7 +3237,6 @@ ikev2_node_internal (vlib_main_t * vm,
 	      res = ikev2_process_create_child_sa_req (vm, sa0, ike0, rlen);
 	      if (!res)
 		{
-      clib_warning("IKEV2_ERROR_MALFORMED_PACKET");
 		  vlib_node_increment_counter (vm, node->node_index,
 					       IKEV2_ERROR_MALFORMED_PACKET,
 					       1);
