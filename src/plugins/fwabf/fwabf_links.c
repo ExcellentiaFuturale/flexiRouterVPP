@@ -93,10 +93,7 @@ typedef struct fwabf_link_t
  */
 typedef struct fwabf_label_data_t_
 {
-  /*
-   * The index of vnet_sw_interface_t interface served by this object.
-   */
-  u32  sw_if_index;
+  u32* interfaces;  /* indexes of vnet_sw_interface_t interfaces served by this object.*/
   u32  counter_hits;
   u32  counter_misses;
   u32  counter_enforced_hits;
@@ -135,7 +132,7 @@ static fwabf_label_data_t* fwabf_labels = NULL;
  * which is best option for dapatplane path.
  */
 static u32* adj_indexes_to_labels           = NULL;  // Lables of all links, either UP or DOWN
-static u32* adj_indexes_to_reachable_labels = NULL;  // Labels for links that are UP
+static u32* adj_indexes_to_reachable_links = NULL;   // DPO-s of Links that are UP
 #define FWABF_MAX_ADJ_INDEX  0xFFFF
 
 
@@ -305,7 +302,7 @@ u32 fwabf_links_add_interface (
    * Labels are preallocated on bootup. No need to allocate now.
    * Just go and update label>->interface mapping.
    */
-  fwabf_labels[fwlabel].sw_if_index = sw_if_index;
+  vec_add1 (fwabf_labels[fwlabel].interfaces, sw_if_index);
 
   /*
    * Initialize new fwabf_link_t now.
@@ -354,6 +351,7 @@ u32 fwabf_links_del_interface (const u32 sw_if_index)
 {
   fwabf_link_t*         link;
   fwabf_label_t         fwlabel;
+  u32                   index;
 
   if (FWABF_SW_INTERFACE_IS_INVALID(sw_if_index))
     {
@@ -370,7 +368,9 @@ u32 fwabf_links_del_interface (const u32 sw_if_index)
   /*
    * Remove label->interface mapping.
    */
-  fwabf_labels[fwlabel].sw_if_index = INDEX_INVALID;
+  index = vec_search (fwabf_labels[fwlabel].interfaces, sw_if_index);
+  ASSERT (index !=INDEX_INVALID);
+  vec_del1 (fwabf_labels[fwlabel].interfaces, index);
 
   /*
    * Remove adjacency->label mapping.
@@ -409,6 +409,7 @@ int fwabf_links_check_quality (
 {
   fwabf_label_data_t*   label;
   fwabf_link_t*         link;
+  u32*                  sw_if_index;
   fwabf_quality_level_t loss_level, delay_level;
 
   if (sc == FWABF_QUALITY_SC_STANDARD)
@@ -417,23 +418,28 @@ int fwabf_links_check_quality (
   ASSERT(fwlabel <= FWABF_MAX_LABEL);
   label = &fwabf_labels[fwlabel];
 
-  if (PREDICT_FALSE(label->sw_if_index == INDEX_INVALID))
+  if (PREDICT_FALSE(vec_len(label->interfaces)==0))
       return 1;
 
-  link = &fwabf_links[label->sw_if_index];
-  loss_level = service_class_quality[sc].loss_level;
-  delay_level = service_class_quality[sc].delay_level;
+  vec_foreach(sw_if_index, label->interfaces)
+    {
+      if (PREDICT_TRUE(*sw_if_index != INDEX_INVALID))
+        {
+          link = &fwabf_links[*sw_if_index];
+          loss_level = service_class_quality[sc].loss_level;
+          delay_level = service_class_quality[sc].delay_level;
 
-  if (reduce_level && loss_level < FWABF_QUALITY_LEVEL_YES)
-    loss_level += reduce_level;
+          if (reduce_level && loss_level < FWABF_QUALITY_LEVEL_YES)
+            loss_level += reduce_level;
 
-  if (reduce_level && delay_level < FWABF_QUALITY_LEVEL_YES)
-    delay_level += reduce_level;
+          if (reduce_level && delay_level < FWABF_QUALITY_LEVEL_YES)
+            delay_level += reduce_level;
 
-  if ((link->quality.loss <= quality_levels[loss_level].loss)
-   && (link->quality.delay <= quality_levels[delay_level].delay)
-     )
-    return 1;
+          if ((link->quality.loss <= quality_levels[loss_level].loss) &&
+              (link->quality.delay <= quality_levels[delay_level].delay))
+            return 1;
+        }
+    }
 
   return 0;
 }
@@ -448,6 +454,7 @@ dpo_id_t fwabf_links_get_dpo (
   u32             i;
   fwabf_label_data_t* label;
   fwabf_link_t*       link;
+  u32                 sw_if_index;
 
   /*
    * If tunnel was marked as 100 loss (which might happen in case tunnels are
@@ -455,12 +462,6 @@ dpo_id_t fwabf_links_get_dpo (
    */
   ASSERT(fwlabel <= FWABF_MAX_LABEL);
   label = &fwabf_labels[fwlabel];
-  link  = &fwabf_links[label->sw_if_index];
-  if (PREDICT_FALSE(label->sw_if_index == INDEX_INVALID) || link->quality.loss == 100)
-    {
-        fwabf_labels[fwlabel].counter_misses++;
-        return invalid_dpo;
-    }
 
   /*
    * lb - is DPO of Load Balance type. It is the object returned by the FIB
@@ -495,10 +496,20 @@ dpo_id_t fwabf_links_get_dpo (
        * for details.
        */
       ASSERT(lookup_dpo->dpoi_index < FWABF_MAX_ADJ_INDEX);
-      if (PREDICT_TRUE(adj_indexes_to_reachable_labels[lookup_dpo->dpoi_index] == fwlabel))
+      sw_if_index = adj_indexes_to_reachable_links[lookup_dpo->dpoi_index];
+      if (PREDICT_TRUE(sw_if_index != INDEX_INVALID))
         {
-          fwabf_labels[fwlabel].counter_hits++;
-          return *lookup_dpo;
+          link = &fwabf_links[sw_if_index];
+
+          /* For peer tunnels next hop does not represent other side!
+             That means that even the adjacency is UP, the remote end can be not reachable.
+             So we rely on reachability informaiton set by user explicitly (see usage of "loss").
+          */
+          if (PREDICT_TRUE(link->fwlabel == fwlabel  &&  link->quality.loss < 100))
+            {
+              fwabf_labels[fwlabel].counter_hits++;
+              return *lookup_dpo;
+            }
         }
     }
   else
@@ -511,10 +522,15 @@ dpo_id_t fwabf_links_get_dpo (
         {
           lookup_dpo = load_balance_get_fwd_bucket (lb, i);
           ASSERT(lookup_dpo->dpoi_index < FWABF_MAX_ADJ_INDEX);
-          if (PREDICT_TRUE(adj_indexes_to_reachable_labels[lookup_dpo->dpoi_index] == fwlabel))
+          sw_if_index = adj_indexes_to_reachable_links[lookup_dpo->dpoi_index];
+          if (PREDICT_TRUE(sw_if_index != INDEX_INVALID))
             {
-              fwabf_labels[fwlabel].counter_hits++;
-              return *lookup_dpo;
+              link = &fwabf_links[sw_if_index];
+              if (PREDICT_TRUE(link->fwlabel == fwlabel  &&  link->quality.loss < 100))
+              {
+                fwabf_labels[fwlabel].counter_hits++;
+                return *lookup_dpo;
+              }
             }
         }
     }
@@ -579,23 +595,21 @@ int fwabf_links_is_dpo_default_route (
 dpo_id_t fwabf_links_get_labeled_dpo (fwabf_label_t fwlabel)
 {
   dpo_id_t              invalid_dpo = DPO_INVALID;
+  u32*                  sw_if_index;
   fwabf_label_data_t*   label;
   fwabf_link_t*         link;
 
   ASSERT(fwlabel <= FWABF_MAX_LABEL);
   label = &fwabf_labels[fwlabel];
 
-  link = &fwabf_links[label->sw_if_index];
-
-  if (PREDICT_FALSE(label->sw_if_index == INDEX_INVALID))  /*we use no locks, so check sw_if_index after fetching link*/
+  vec_foreach(sw_if_index, label->interfaces)
     {
-        return invalid_dpo;
-    }
-
-  if (PREDICT_TRUE(FWABF_DPO_ADJACENCY_UP(link->dpo) && link->quality.loss < 100))
-    {
-      label->counter_enforced_hits++;
-      return link->dpo;
+      link = &fwabf_links[*sw_if_index];
+      if (PREDICT_TRUE(FWABF_DPO_ADJACENCY_UP(link->dpo) && link->quality.loss < 100))
+        {
+          label->counter_enforced_hits++;
+          return link->dpo;
+        }
     }
 
   label->counter_enforced_misses++;
@@ -775,8 +789,8 @@ clib_error_t * fwabf_quality_cmd (
   */
   if (loss != ~0)
   {
-    u32 reachable_label = (loss < 100) ? link->fwlabel : FWABF_INVALID_LABEL;
-    adj_indexes_to_reachable_labels[link->dpo.dpoi_index] = reachable_label;
+    u32 sw_if_index = (loss < 100) ? link->fwlabel : INDEX_INVALID;
+    adj_indexes_to_reachable_links[link->dpo.dpoi_index] = sw_if_index;
   }
 
   return (NULL);
@@ -868,6 +882,7 @@ fwabf_link_show_labels_cmd (
   vnet_main_t*  vnm     = vnet_get_main();
   fwabf_link_t* link;
   u32           i;
+  u32*          sw_if_index;
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -880,23 +895,25 @@ fwabf_link_show_labels_cmd (
 
   for (i=0; i<FWABF_MAX_LABEL; i++)
     {
-      if (fwabf_labels[i].sw_if_index == INDEX_INVALID)
+      if (vec_len(fwabf_labels[i].interfaces) == 0)
         continue;
 
       vlib_cli_output(vm, "%d (hits:%d misses:%d enforced_hits:%d enforced_misses:%d):",
           i, fwabf_labels[i].counter_hits, fwabf_labels[i].counter_misses,
           fwabf_labels[i].counter_enforced_hits, fwabf_labels[i].counter_enforced_misses);
-
-      link = &fwabf_links[fwabf_labels[i].sw_if_index];
-      if (verbose)
+      vec_foreach (sw_if_index, fwabf_labels[i].interfaces)
         {
-          vlib_cli_output(vm, "  %U", format_fwabf_link, link, vnm);
-        }
-      else
-        {
-          vlib_cli_output(vm, "  %U (sw_if_index=%d)",
-            format_vnet_sw_if_index_name, vnm, link->sw_if_index,
-            link->sw_if_index);
+          link = &fwabf_links[*sw_if_index];
+          if (verbose)
+            {
+              vlib_cli_output(vm, "  %U", format_fwabf_link, link, vnm);
+            }
+          else
+            {
+              vlib_cli_output(vm, "  %U (sw_if_index=%d)",
+                format_vnet_sw_if_index_name, vnm, link->sw_if_index,
+                link->sw_if_index);
+            }
         }
     }
   return (NULL);
@@ -945,7 +962,7 @@ void fwabf_link_refresh_dpo(fwabf_link_t * link)
   dpo_reset (&via_dpo);
 
   /*
-   * Update adj_indexes_to_reachable_labels map with refreshed DPO.
+   * Update adj_indexes_to_reachable_links map with refreshed DPO.
    * Note we add only active DPO-s to the map, so ensure that DPO state
    * is DPO_ADJACENCY/DPO_ADJACENCY_MIDCHAIN and not DPO_ADJACENCY_INCOMPLETE.
    * The last is set, if the adjacency is not arp-resolved, which means
@@ -954,11 +971,11 @@ void fwabf_link_refresh_dpo(fwabf_link_t * link)
   ASSERT(link->dpo.dpoi_index < FWABF_MAX_ADJ_INDEX);
   if (PREDICT_TRUE(FWABF_DPO_ADJACENCY_UP(link->dpo)))
     {
-      adj_indexes_to_reachable_labels[link->dpo.dpoi_index] = link->fwlabel;
+      adj_indexes_to_reachable_links[link->dpo.dpoi_index] = link->sw_if_index;
     }
   else
     {
-      adj_indexes_to_reachable_labels[link->dpo.dpoi_index] = FWABF_INVALID_LABEL;
+      adj_indexes_to_reachable_links[link->dpo.dpoi_index] = INDEX_INVALID;
     }
 
   /*
@@ -1252,7 +1269,7 @@ clib_error_t * fwabf_links_init (vlib_main_t * vm)
   for (u32 i = 0; i < vec_len(fwabf_labels); i++)
   {
     memset(&fwabf_labels[i], 0, sizeof(fwabf_labels[i]));
-    fwabf_labels[i].sw_if_index = INDEX_INVALID;
+    fwabf_labels[i].interfaces = vec_new(u32, 0);
   }
 
   /*
@@ -1260,7 +1277,7 @@ clib_error_t * fwabf_links_init (vlib_main_t * vm)
    * We preallocate it as number of adjacencies is limited by 0xFFFF.
    */
   vec_validate_init_empty(adj_indexes_to_labels,           FWABF_MAX_ADJ_INDEX, FWABF_INVALID_LABEL);
-  vec_validate_init_empty(adj_indexes_to_reachable_labels, FWABF_MAX_ADJ_INDEX, FWABF_INVALID_LABEL);
+  vec_validate_init_empty(adj_indexes_to_reachable_links, FWABF_MAX_ADJ_INDEX, INDEX_INVALID);
 
   /*
    * Initialize default route adjacencies. They might be needed by Policy.
