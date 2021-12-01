@@ -21,7 +21,9 @@
  *   - ikev2_mngr_process_child_sa: Check if profile exists before accessing it
  *   - Reinitiate connection on rekeying failure due to missing PFS (Perfect Forward Secrecy) feature.
  *   - Wake up manager task in case if child sa was deleted to speed up recovery from failed connection.
- *   - Fixed a bug in ikev2_retransmit_resp. Now we properly check msg_id of responses and not requests.
+ *   - Do not ignore requests with msg_id 0 (DELETE and CREATE_CHILD_SA) used for rekeying.
+ *   - Improved search for child sa inside ikev2_sa_get_child by checking both rspi and ispi.
+ *   - Allow rekeying initiated by Strongswan responder.
  */
 
 #include <vlib/vlib.h>
@@ -282,10 +284,20 @@ ikev2_sa_get_child (ikev2_sa_t * sa, u32 spi, ikev2_protocol_id_t prot_id,
   ikev2_child_sa_t *c;
   vec_foreach (c, sa->childs)
   {
+#ifdef FLEXIWAN_FIX
+    ikev2_sa_proposal_t *proposal = &c->i_proposals[0];
+    if (proposal && proposal->spi == spi && proposal->protocol_id == prot_id)
+      return c;
+
+    proposal = &c->r_proposals[0];
+    if (proposal && proposal->spi == spi && proposal->protocol_id == prot_id)
+      return c;
+#else
     ikev2_sa_proposal_t *proposal =
       by_initiator ? &c->i_proposals[0] : &c->r_proposals[0];
     if (proposal && proposal->spi == spi && proposal->protocol_id == prot_id)
       return c;
+#endif /* FLEXIWAN_FIX */
   }
 
   return 0;
@@ -1451,8 +1463,13 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
       p += plen;
     }
 
+#ifdef FLEXIWAN_FIX
+  if (ike_hdr_is_response (ike) && proposal
+      && proposal->protocol_id == IKEV2_PROTOCOL_ESP)
+#else
   if (sa->is_initiator && proposal
       && proposal->protocol_id == IKEV2_PROTOCOL_ESP)
+#endif /* FLEXIWAN_FIX */
     {
       ikev2_rekey_t *rekey = sa->rekey;
       if (vec_len (rekey) == 0)
@@ -2708,18 +2725,17 @@ ikev2_retransmit_sa_init (ike_header_t * ike, ip_address_t iaddr,
 static u32
 ikev2_retransmit_resp (ikev2_sa_t * sa, ike_header_t * ike)
 {
-#ifdef FLEXIWAN_FIX
-  if (!ike_hdr_is_response (ike))
-    return 0;
-#else
   if (ike_hdr_is_response (ike))
     return 0;
-#endif /* FLEXIWAN_FIX */
 
   u32 msg_id = clib_net_to_host_u32 (ike->msgid);
 
+#ifdef FLEXIWAN_FIX
+  if (msg_id > sa->last_msg_id || msg_id == 0)
+#else
   /* new req */
   if (msg_id > sa->last_msg_id)
+#endif /* FLEXIWAN_FIX */
     {
       sa->last_msg_id = msg_id;
       return 0;
