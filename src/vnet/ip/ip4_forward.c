@@ -44,6 +44,7 @@
  *
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - nat-tap-inject: NAT support for packets sourced from tap-inject
+ *   - Do not drop routed OSPF packets with TTL equal to 1.
  *
  */
 
@@ -2074,6 +2075,14 @@ ip4_ttl_and_checksum_check (vlib_buffer_t * b, ip4_header_t * ip, u16 * next,
   ip->checksum = checksum;
   ttl -= 1;
   ip->ttl = ttl;
+
+#ifdef FLEXIWAN_FIX
+  if (PREDICT_FALSE (ip->protocol == IP_PROTOCOL_OSPF && ttl <= 0))
+    {
+      ip4_ttl_inc (b, ip);
+      ttl++;
+    }
+#endif /* FLEXIWAN_FIX */
 
   /*
    * If the ttl drops below 1 when forwarding, generate
