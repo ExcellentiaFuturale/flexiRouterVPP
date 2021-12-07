@@ -382,41 +382,13 @@ static inline u32 fwabf_policy_get_dpo_ip4 (
         */
         if (group->alg == FWABF_SELECTION_QUALITY)
           {
-            fwabf_policy_link_group_t quality_group;
-            fwabf_label_t*            plabel;
-            int                       reduce_level = 0;
-
-            memset(&quality_group, 0, sizeof(quality_group));
-            do {
-                vec_foreach (plabel, group->links)
-                  {
-                    if (fwabf_links_check_quality (*plabel, sc, reduce_level))
-                      vec_add1(quality_group.links, (fwabf_label_t)*plabel);
-                  }
-                  reduce_level++;
-                  if (reduce_level > FWABF_QUALITY_LEVEL_YES)
-                    break;
-            } while (vec_len(quality_group.links) == 0);
-
-            if (vec_len(quality_group.links) > 0)
+            if (!flow_hash)
+              flow_hash = ip4_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
+            *dpo = fwabf_links_get_quality_dpo (group->links, sc, lb, is_default_route_lb, flow_hash);
+            if (dpo_id_is_valid (dpo))
               {
-                quality_group.n_links_minus_1   = vec_len(quality_group.links) - 1;
-                quality_group.n_links_pow2_mask = (vec_len(quality_group.links) <= 0xF) ? 0xF : 0xFF; /* Maximum number of labels is 255 */
-
-                if (!flow_hash)
-                  flow_hash = ip4_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
-
-                i = FWABF_GET_INDEX_BY_FLOWHASH(
-                      flow_hash, quality_group.n_links_pow2_mask, quality_group.n_links_minus_1, i);
-                fwlabel = quality_group.links[i];
-                vec_free (quality_group.links);
-
-                *dpo = FWABF_POLICY_GET_DPO(fwlabel, lb, DPO_PROTO_IP4, is_default_route_lb);
-                if (dpo_id_is_valid (dpo))
-                  {
-                    p->counter_applied++;
-                    return 1;
-                  }
+                p->counter_applied++;
+                return 1;
               }
           }
       }
@@ -472,41 +444,13 @@ static inline u32 fwabf_policy_get_dpo_ip4 (
         */
         if (group->alg == FWABF_SELECTION_QUALITY)
           {
-            fwabf_policy_link_group_t quality_group;
-            fwabf_label_t*            plabel;
-            int                       reduce_level = 0;
-
-            memset(&quality_group, 0, sizeof(quality_group));
-            do {
-                vec_foreach (plabel, group->links)
-                  {
-                    if (fwabf_links_check_quality (*plabel, sc, reduce_level))
-                      vec_add1(quality_group.links, (fwabf_label_t)*plabel);
-                  }
-                  reduce_level++;
-                  if (reduce_level > FWABF_QUALITY_LEVEL_YES)
-                    break;
-            } while (vec_len(quality_group.links) == 0);
-
-            if (vec_len(quality_group.links) > 0)
+            if (!flow_hash)
+              flow_hash = ip4_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
+            *dpo = fwabf_links_get_quality_dpo (group->links, sc, lb, is_default_route_lb, flow_hash);
+            if (dpo_id_is_valid (dpo))
               {
-                quality_group.n_links_minus_1   = vec_len(quality_group.links) - 1;
-                quality_group.n_links_pow2_mask = (vec_len(quality_group.links) <= 0xF) ? 0xF : 0xFF; /* Maximum number of labels is 255 */
-
-                if (!flow_hash)
-                  flow_hash = ip4_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
-
-                i = FWABF_GET_INDEX_BY_FLOWHASH(
-                      flow_hash, quality_group.n_links_pow2_mask, quality_group.n_links_minus_1, i);
-                fwlabel = quality_group.links[i];
-                vec_free (quality_group.links);
-
-                *dpo = FWABF_POLICY_GET_DPO(fwlabel, lb, DPO_PROTO_IP4, is_default_route_lb);
-                if (dpo_id_is_valid (dpo))
-                  {
-                    p->counter_applied++;
-                    return 1;
-                  }
+                p->counter_applied++;
+                return 1;
               }
           }
       }
@@ -624,41 +568,13 @@ static inline u32 fwabf_policy_get_dpo_ip6 (
         */
         if (group->alg == FWABF_SELECTION_QUALITY)
           {
-            fwabf_policy_link_group_t quality_group;
-            fwabf_label_t*            plabel;
-            int                       reduce_level = 0;
-
-            memset(&quality_group, 0, sizeof(quality_group));
-            do {
-                vec_foreach (plabel, group->links)
-                  {
-                    if (fwabf_links_check_quality (*plabel, sc, reduce_level))
-                      vec_add1(quality_group.links, (fwabf_label_t)*plabel);
-                  }
-                  reduce_level++;
-                  if (reduce_level > FWABF_QUALITY_LEVEL_YES)
-                    break;
-            } while (vec_len(quality_group.links) == 0);
-
-            if (vec_len(quality_group.links) > 0)
+            if (!flow_hash)
+              flow_hash = ip6_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
+            *dpo = fwabf_links_get_quality_dpo (group->links, sc, lb, is_default_route_lb, flow_hash);
+            if (dpo_id_is_valid (dpo))
               {
-                quality_group.n_links_minus_1   = vec_len(quality_group.links) - 1;
-                quality_group.n_links_pow2_mask = (vec_len(quality_group.links) <= 0xF) ? 0xF : 0xFF; /* Maximum number of labels is 255 */
-
-                if (!flow_hash)
-                  flow_hash = ip6_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
-
-                i = FWABF_GET_INDEX_BY_FLOWHASH(
-                      flow_hash, quality_group.n_links_pow2_mask, quality_group.n_links_minus_1, i);
-                fwlabel = quality_group.links[i];
-                vec_free (quality_group.links);
-
-                *dpo = FWABF_POLICY_GET_DPO(fwlabel, lb, DPO_PROTO_IP6, is_default_route_lb);
-                if (dpo_id_is_valid (dpo))
-                  {
-                    p->counter_applied++;
-                    return 1;
-                  }
+                p->counter_applied++;
+                return 1;
               }
           }
       }
@@ -715,41 +631,13 @@ static inline u32 fwabf_policy_get_dpo_ip6 (
         */
         if (group->alg == FWABF_SELECTION_QUALITY)
           {
-            fwabf_policy_link_group_t quality_group;
-            fwabf_label_t*            plabel;
-            int                       reduce_level = 0;
-
-            memset(&quality_group, 0, sizeof(quality_group));
-            do {
-                vec_foreach (plabel, group->links)
-                  {
-                    if (fwabf_links_check_quality (*plabel, sc, reduce_level))
-                      vec_add1(quality_group.links, (fwabf_label_t)*plabel);
-                  }
-                  reduce_level++;
-                  if (reduce_level > FWABF_QUALITY_LEVEL_YES)
-                    break;
-            } while (vec_len(quality_group.links) == 0);
-
-            if (vec_len(quality_group.links) > 0)
+            if (!flow_hash)
+              flow_hash = ip6_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
+            *dpo = fwabf_links_get_quality_dpo (group->links, sc, lb, is_default_route_lb, flow_hash);
+            if (dpo_id_is_valid (dpo))
               {
-                quality_group.n_links_minus_1   = vec_len(quality_group.links) - 1;
-                quality_group.n_links_pow2_mask = (vec_len(quality_group.links) <= 0xF) ? 0xF : 0xFF; /* Maximum number of labels is 255 */
-
-                if (!flow_hash)
-                  flow_hash = ip6_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
-
-                i = FWABF_GET_INDEX_BY_FLOWHASH(
-                      flow_hash, quality_group.n_links_pow2_mask, quality_group.n_links_minus_1, i);
-                fwlabel = quality_group.links[i];
-                vec_free (quality_group.links);
-
-                *dpo = FWABF_POLICY_GET_DPO(fwlabel, lb, DPO_PROTO_IP6, is_default_route_lb);
-                if (dpo_id_is_valid (dpo))
-                  {
-                    p->counter_applied++;
-                    return 1;
-                  }
+                p->counter_applied++;
+                return 1;
               }
           }
       }

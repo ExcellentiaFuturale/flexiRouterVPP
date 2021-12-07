@@ -118,10 +118,12 @@ extern u32 fwabf_links_del_interface (const u32 sw_if_index);
  *                     we reduce requirements to the next level and check again
  * @return 1 if link quality requirements are satisfied, 0 otherwise.
  */
-extern int fwabf_links_check_quality (
-                        fwabf_label_t                   fwlabel,
+extern dpo_id_t fwabf_links_get_quality_dpo (
+                        fwabf_label_t*                  policy_labels,
                         fwabf_quality_service_class_t   sc,
-                        int                             reduce_level);
+                        const load_balance_t*           lb,
+                        u32                             is_default_route_lb,
+                        u32                             flow_hash);
 
 /**
  * Intersects DPO-s retrieved by FIB lookup with DPO-s that belong to labeled
