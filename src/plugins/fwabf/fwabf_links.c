@@ -98,6 +98,8 @@ typedef struct fwabf_label_data_t_
   u32  counter_misses;
   u32  counter_enforced_hits;
   u32  counter_enforced_misses;
+  u32  counter_quality_hits;
+  u32  counter_quality_reduced_hits;
 } fwabf_label_data_t;
 
 /**
@@ -402,46 +404,187 @@ u32 fwabf_links_del_interface (const u32 sw_if_index)
   return 0;
 }
 
-int fwabf_links_check_quality (
-                        fwabf_label_t                   fwlabel,
+#define FWABF_GET_INDEX_BY_FLOWHASH(_flowhash, _vec_len_pow2_mask, _vec_len_minus_1, _res) \
+      (((_res = (_flowhash & _vec_len_pow2_mask)) <= _vec_len_minus_1) ? _res : (_res & _vec_len_minus_1))
+
+dpo_id_t fwabf_links_get_quality_dpo (
+                        fwabf_label_t*                  policy_labels,
                         fwabf_quality_service_class_t   sc,
-                        int                             reduce_level)
+                        const load_balance_t*           lb,
+                        u32                             is_default_route_lb,
+                        u32                             flow_hash)
 {
-  fwabf_label_data_t*   label;
-  fwabf_link_t*         link;
-  u32*                  sw_if_index;
-  fwabf_quality_level_t loss_level, delay_level;
+  dpo_id_t                  invalid_dpo = DPO_INVALID;
+  u32                       ret_sw_if_index = INDEX_INVALID;
+  const dpo_id_t*           lookup_dpo;
+  u32*                      reachable_links = 0;
+  u32*                      quality_links = 0;
+  u32*                      p_sw_if_index;
+  u32                       sw_if_index;
+  fwabf_label_t             fwlabel;
+  fwabf_label_t*            label;
+  fwabf_label_data_t*       label_data;
+  fwabf_link_t*             link;
+  fwabf_quality_level_t     loss_level, delay_level;
+  u32                       i, n_reachable_links, n_quality_links, n_links_pow2_mask;
 
-  if (sc == FWABF_QUALITY_SC_STANDARD)
-    return 1;
+  if (PREDICT_FALSE(vec_len(policy_labels) == 0))
+    return invalid_dpo;
 
-  ASSERT(fwlabel <= FWABF_MAX_LABEL);
-  label = &fwabf_labels[fwlabel];
+  /* If FIB lookup was resolved to default route (is_default_route_lb is true),
+     we ignore the interface pointed by FIB and just enforce policy tunnels.
+     This is to support scenario, where user wants all internet traffic to go into tunnel.
+  */
+  if (PREDICT_FALSE(is_default_route_lb))
+  {
+    reachable_links = vec_new(u32, 0);
+    vec_foreach (label, policy_labels)
+      {
+        label_data = &fwabf_labels[*label];
+        vec_foreach(p_sw_if_index, label_data->interfaces)
+          {
+            link = &fwabf_links[*p_sw_if_index];
+            if (PREDICT_TRUE(FWABF_DPO_ADJACENCY_UP(link->dpo) && link->quality.loss < 100))
+              {
+                vec_add1(reachable_links, *p_sw_if_index);
+              }
+          }
+      }
+  }
+  else /* !is_default_route_lb */
+  {
+    if (PREDICT_FALSE (lb->lb_n_buckets == 1))
+      {
+        lookup_dpo = load_balance_get_bucket_i (lb, 0);
+        ASSERT(lookup_dpo->dpoi_index < FWABF_MAX_ADJ_INDEX);
+        sw_if_index = adj_indexes_to_reachable_links[lookup_dpo->dpoi_index];
+        fwlabel = adj_indexes_to_labels[lookup_dpo->dpoi_index];
 
-  if (PREDICT_FALSE(vec_len(label->interfaces)==0))
-      return 1;
+        if (PREDICT_TRUE(sw_if_index != INDEX_INVALID) && PREDICT_TRUE(fwlabel != FWABF_INVALID_LABEL))
+          {
+            vec_foreach (label, policy_labels)
+              {
+                if (PREDICT_FALSE (*label == fwlabel))
+                  {
+                    fwabf_labels[fwlabel].counter_hits++;
 
-  vec_foreach(sw_if_index, label->interfaces)
+                    link = &fwabf_links[sw_if_index];
+                    loss_level = service_class_quality[sc].loss_level;
+                    delay_level = service_class_quality[sc].delay_level;
+                    if ((link->quality.loss <= quality_levels[loss_level].loss) &&
+                        (link->quality.delay <= quality_levels[delay_level].delay))
+                      fwabf_labels[link->fwlabel].counter_quality_hits++;
+                    else
+                      fwabf_labels[link->fwlabel].counter_quality_reduced_hits++;
+
+                    return *lookup_dpo;
+                  }
+              }
+          }
+      }
+    else
+      {
+        vec_validate(reachable_links, lb->lb_n_buckets);
+        for (i=0; i<lb->lb_n_buckets; i++)
+          {
+            lookup_dpo = load_balance_get_fwd_bucket (lb, i);
+            ASSERT(lookup_dpo->dpoi_index < FWABF_MAX_ADJ_INDEX);
+            sw_if_index = adj_indexes_to_reachable_links[lookup_dpo->dpoi_index];
+            fwlabel = adj_indexes_to_labels[lookup_dpo->dpoi_index];
+
+            if (PREDICT_TRUE(sw_if_index != INDEX_INVALID) && PREDICT_TRUE(fwlabel != FWABF_INVALID_LABEL))
+              {
+                vec_foreach (label, policy_labels)
+                  {
+                    if (PREDICT_FALSE (*label == fwlabel))
+                      {
+                        vec_add1(reachable_links, sw_if_index);
+                        break;
+                      }
+                  }
+              }
+          }
+      }
+  }
+
+  n_reachable_links = vec_len(reachable_links);
+  if (PREDICT_TRUE(n_reachable_links > 1))
+  {
+    vec_validate(quality_links, n_reachable_links);
+
+    loss_level = service_class_quality[sc].loss_level;
+    delay_level = service_class_quality[sc].delay_level;
+
+    do {
+        vec_foreach (p_sw_if_index, reachable_links)
+          {
+            link = &fwabf_links[*p_sw_if_index];
+            if ((link->quality.loss <= quality_levels[loss_level].loss) &&
+                (link->quality.delay <= quality_levels[delay_level].delay))
+              vec_add1(quality_links, *p_sw_if_index);
+          }
+
+        if (loss_level < FWABF_QUALITY_LEVEL_YES)
+          loss_level++;
+
+        if (delay_level < FWABF_QUALITY_LEVEL_YES)
+          delay_level++;
+
+    } while ((vec_len(quality_links) == 0) &&
+            (loss_level < FWABF_QUALITY_LEVEL_YES || delay_level < FWABF_QUALITY_LEVEL_YES));
+
+    vec_free (reachable_links);
+    n_quality_links = vec_len(quality_links);
+    if (PREDICT_TRUE(n_quality_links > 1))
     {
-      if (PREDICT_TRUE(*sw_if_index != INDEX_INVALID))
-        {
-          link = &fwabf_links[*sw_if_index];
-          loss_level = service_class_quality[sc].loss_level;
-          delay_level = service_class_quality[sc].delay_level;
+      n_links_pow2_mask = (n_quality_links <= 0xF) ? 0xF : 0xFF;
+      i = FWABF_GET_INDEX_BY_FLOWHASH(flow_hash, n_links_pow2_mask, n_quality_links - 1, i);
+      ret_sw_if_index = quality_links[i];
 
-          if (reduce_level && loss_level < FWABF_QUALITY_LEVEL_YES)
-            loss_level += reduce_level;
-
-          if (reduce_level && delay_level < FWABF_QUALITY_LEVEL_YES)
-            delay_level += reduce_level;
-
-          if ((link->quality.loss <= quality_levels[loss_level].loss) &&
-              (link->quality.delay <= quality_levels[delay_level].delay))
-            return 1;
-        }
+      i = flow_hash & (n_quality_links - 1);
+      ret_sw_if_index = quality_links[i];
     }
+    else if (PREDICT_TRUE(n_quality_links == 1))
+    {
+      ret_sw_if_index = quality_links[0];
+    }
+    else /* n_quality_links == 0 */
+    {
+      vec_free (quality_links);
+    }
+    vec_free (quality_links);
+  }
+  else if (PREDICT_TRUE(n_reachable_links == 1))
+  {
+    ret_sw_if_index = reachable_links[0];
+    vec_free (reachable_links);
+  }
+  else /* n_reachable_links == 0 */
+  {
+    vec_free (reachable_links);
+    return invalid_dpo;
+  }
 
-  return 0;
+  if (ret_sw_if_index != INDEX_INVALID)
+  {
+    link = &fwabf_links[ret_sw_if_index];
+    if (PREDICT_FALSE(is_default_route_lb))
+      fwabf_labels[link->fwlabel].counter_enforced_hits++;
+    else
+      fwabf_labels[link->fwlabel].counter_hits++;
+
+    loss_level = service_class_quality[sc].loss_level;
+    delay_level = service_class_quality[sc].delay_level;
+    if ((link->quality.loss <= quality_levels[loss_level].loss) &&
+        (link->quality.delay <= quality_levels[delay_level].delay))
+      fwabf_labels[link->fwlabel].counter_quality_hits++;
+    else
+      fwabf_labels[link->fwlabel].counter_quality_reduced_hits++;
+
+    return link->dpo;
+  }
+
+  return invalid_dpo;
 }
 
 dpo_id_t fwabf_links_get_dpo (
@@ -789,7 +932,7 @@ clib_error_t * fwabf_quality_cmd (
   */
   if (loss != ~0)
   {
-    u32 sw_if_index = (loss < 100) ? link->fwlabel : INDEX_INVALID;
+    u32 sw_if_index = (loss < 100) ? link->sw_if_index : INDEX_INVALID;
     adj_indexes_to_reachable_links[link->dpo.dpoi_index] = sw_if_index;
   }
 
@@ -898,9 +1041,10 @@ fwabf_link_show_labels_cmd (
       if (vec_len(fwabf_labels[i].interfaces) == 0)
         continue;
 
-      vlib_cli_output(vm, "%d (hits:%d misses:%d enforced_hits:%d enforced_misses:%d):",
+      vlib_cli_output(vm, "%d (hits:%d misses:%d enforced_hits:%d enforced_misses:%d quality_hits:%d quality_reduced_hits:%d ):",
           i, fwabf_labels[i].counter_hits, fwabf_labels[i].counter_misses,
-          fwabf_labels[i].counter_enforced_hits, fwabf_labels[i].counter_enforced_misses);
+          fwabf_labels[i].counter_enforced_hits, fwabf_labels[i].counter_enforced_misses,
+          fwabf_labels[i].counter_quality_hits, fwabf_labels[i].counter_quality_reduced_hits);
       vec_foreach (sw_if_index, fwabf_labels[i].interfaces)
         {
           link = &fwabf_links[*sw_if_index];
