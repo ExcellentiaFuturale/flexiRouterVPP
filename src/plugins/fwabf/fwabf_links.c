@@ -484,7 +484,7 @@ dpo_id_t fwabf_links_get_quality_dpo (
       }
     else
       {
-        vec_validate(reachable_links, lb->lb_n_buckets);
+        reachable_links = vec_new(u32, 0);
         for (i=0; i<lb->lb_n_buckets; i++)
           {
             lookup_dpo = load_balance_get_fwd_bucket (lb, i);
@@ -510,7 +510,7 @@ dpo_id_t fwabf_links_get_quality_dpo (
   n_reachable_links = vec_len(reachable_links);
   if (PREDICT_TRUE(n_reachable_links > 1))
   {
-    vec_validate(quality_links, n_reachable_links);
+    quality_links = vec_new(u32, 0);
 
     loss_level = service_class_quality[sc].loss_level;
     delay_level = service_class_quality[sc].delay_level;
@@ -539,9 +539,6 @@ dpo_id_t fwabf_links_get_quality_dpo (
     {
       n_links_pow2_mask = (n_quality_links <= 0xF) ? 0xF : 0xFF;
       i = FWABF_GET_INDEX_BY_FLOWHASH(flow_hash, n_links_pow2_mask, n_quality_links - 1, i);
-      ret_sw_if_index = quality_links[i];
-
-      i = flow_hash & (n_quality_links - 1);
       ret_sw_if_index = quality_links[i];
     }
     else if (PREDICT_TRUE(n_quality_links == 1))
