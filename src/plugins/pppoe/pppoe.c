@@ -757,12 +757,13 @@ pppoe_init (vlib_main_t * vm)
   BV (clib_bihash_init) (&pem->session_table, "pppoe session table",
 			 PPPOE_NUM_BUCKETS, PPPOE_MEMORY_SIZE);
 
+#if 0
   ethernet_register_input_type (vm, ETHERNET_TYPE_PPPOE_SESSION,
 				pppoe_input_node.index);
 
   ethernet_register_input_type (vm, ETHERNET_TYPE_PPPOE_DISCOVERY,
 				pppoe_cp_dispatch_node.index);
-
+#endif
   pppoe_fib_src = fib_source_allocate ("pppoe",
 				       FIB_SOURCE_PRIORITY_HI,
 				       FIB_SOURCE_BH_API);
