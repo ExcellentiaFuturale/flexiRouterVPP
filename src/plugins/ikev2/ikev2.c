@@ -24,6 +24,10 @@
  *   - Do not ignore requests with msg_id 0 (DELETE and CREATE_CHILD_SA) used for rekeying.
  *   - Improved search for child sa inside ikev2_sa_get_child by checking both rspi and ispi.
  *   - Allow rekeying initiated by Strongswan responder.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - New parameter for ipip_add_tunnel() API - GW - to accomodate path selection policy for peer
+ *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
+ *     default route.
  */
 
 #include <vlib/vlib.h>
@@ -1885,8 +1889,11 @@ ikev2_add_tunnel_from_main (ikev2_add_ipsec_tunnel_args_t * a)
       rv = ipip_add_tunnel (IPIP_TRANSPORT_IP4, ~0,
 			    &a->local_ip, &a->remote_ip, 0,
 			    TUNNEL_ENCAP_DECAP_FLAG_NONE, IP_DSCP_CS0,
+#ifdef FLEXIWAN_FEATURE
+			    TUNNEL_MODE_P2P, NULL /*next_hop_ip*/, &sw_if_index);
+#else
 			    TUNNEL_MODE_P2P, &sw_if_index);
-
+#endif
       if (rv == VNET_API_ERROR_IF_ALREADY_EXISTS)
 	{
 	  if (hash_get (km->sw_if_indices, sw_if_index))

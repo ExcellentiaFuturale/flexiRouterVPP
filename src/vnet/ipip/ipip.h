@@ -15,6 +15,14 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - New parameter for ipip_add_tunnel() API - GW - to accomodate path selection policy for peer
+ *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
+ *     default route.
+ */
+
 #ifndef included_ipip_h
 #define included_ipip_h
 
@@ -89,6 +97,10 @@ typedef struct
   tunnel_encap_decap_flags_t flags;
   ip_dscp_t dscp;
 
+#ifdef FLEXIWAN_FEATURE
+  ip46_address_t tunnel_gw;  /*if set, this IP is used instead of tunnel_dst to resolve tx interface*/
+#endif
+
   struct
   {
     ip6_address_t ip6_prefix;
@@ -149,7 +161,11 @@ sixrd_get_addr_net (const ipip_tunnel_t * t, u64 dal)
 int ipip_add_tunnel (ipip_transport_t transport, u32 instance,
 		     ip46_address_t * src, ip46_address_t * dst,
 		     u32 fib_index, tunnel_encap_decap_flags_t flags,
-		     ip_dscp_t dscp, tunnel_mode_t mode, u32 * sw_if_indexp);
+#ifdef FLEXIWAN_FEATURE
+             ip_dscp_t dscp, tunnel_mode_t mode, ip46_address_t * gw, u32 * sw_if_indexp);
+#else
+             ip_dscp_t dscp, tunnel_mode_t mode, u32 * sw_if_indexp);
+#endif
 int ipip_del_tunnel (u32 sw_if_index);
 int sixrd_add_tunnel (ip6_address_t * ip6_prefix, u8 ip6_prefix_len,
 		      ip4_address_t * ip4_prefix, u8 ip4_prefix_len,

@@ -15,6 +15,14 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - New parameter for ipip_add_tunnel() API - GW - to accomodate path selection policy for peer
+ *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
+ *     default route.
+ */
+
 #include <stddef.h>
 #include <vnet/adj/adj_midchain.h>
 #include <vnet/ipip/ipip.h>
@@ -231,6 +239,11 @@ ipip_tunnel_stack (adj_index_t ai)
         .fp_addr = t->tunnel_dst
       };
       /* *INDENT-ON* */
+
+#ifdef FLEXIWAN_FEATURE
+      if (PREDICT_TRUE(!(ip46_address_is_zero(&t->tunnel_gw))))
+        dst.fp_addr = t->tunnel_gw;
+#endif
 
       adj_midchain_delegate_stack (ai, t->fib_index, &dst);
     }
@@ -664,7 +677,11 @@ int
 ipip_add_tunnel (ipip_transport_t transport,
 		 u32 instance, ip46_address_t * src, ip46_address_t * dst,
 		 u32 fib_index, tunnel_encap_decap_flags_t flags,
+#ifdef FLEXIWAN_FEATURE
+		 ip_dscp_t dscp, tunnel_mode_t tmode, ip46_address_t * gw, u32 * sw_if_indexp)
+#else
 		 ip_dscp_t dscp, tunnel_mode_t tmode, u32 * sw_if_indexp)
+#endif
 {
   ipip_main_t *gm = &ipip_main;
   vnet_main_t *vnm = gm->vnet_main;
@@ -724,6 +741,11 @@ ipip_add_tunnel (ipip_transport_t transport,
   t->dscp = dscp;
   t->flags = flags;
   t->transport = transport;
+
+#ifdef FLEXIWAN_FEATURE
+  if (PREDICT_TRUE(gw!=NULL))
+      t->tunnel_gw = *gw;
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
   vec_validate_init_empty (gm->tunnel_index_by_sw_if_index, sw_if_index, ~0);
   gm->tunnel_index_by_sw_if_index[sw_if_index] = t_idx;

@@ -17,6 +17,14 @@
  *------------------------------------------------------------------
  */
 
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - New parameter for ipip_add_tunnel() API - GW - to accomodate path selection policy for peer
+ *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
+ *     default route.
+ */
+
 #include <vnet/vnet.h>
 #include <vlibmemory/api.h>
 
@@ -740,7 +748,11 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 			    &local_ip,
 			    &remote_ip, fib_index,
 			    TUNNEL_ENCAP_DECAP_FLAG_NONE, IP_DSCP_CS0,
+#ifdef FLEXIWAN_FEATURE
+			    TUNNEL_MODE_P2P, NULL /*gw*/, &sw_if_index);
+#else
 			    TUNNEL_MODE_P2P, &sw_if_index);
+#endif
 
       if (rv)
 	goto done;
