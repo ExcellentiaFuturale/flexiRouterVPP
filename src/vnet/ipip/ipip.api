@@ -70,6 +70,7 @@ typedef ipip_tunnel
   vl_api_tunnel_mode_t mode;
   vl_api_ip_dscp_t dscp; /* DSCP value for the tunnel encap,
                             ignored if ECNAP_COPY_DSCP flag is set */
+  vl_api_address_t gw;   /* GW. If not zero, it is used instead of dst to resolve tx interface*/
 };
 
 /**
