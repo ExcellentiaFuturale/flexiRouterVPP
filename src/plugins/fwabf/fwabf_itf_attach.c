@@ -550,11 +550,12 @@ fwabf_input_ip4 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
            *             so FIB lookup can't bring mix of labeled and not labeled
            *             tunnels!
            *
-           * The exception for this algorithm is DPO of default route. We have
-           * to enable policy on such DPO in order to drop specific DIA packets
-           * without DIA label! That means even if DPO is not labeled.
-           * This is for user convenience, so he could set policy without
-           * binding labels to interfaces.
+           * The exception for this algorithm is DPO of default route.
+           * Even if it is not labeled, user might want to enforce the default
+           * route packets to go into policy tunnels on ACL & Policy match.
+           * This is needed for use case of Branch-to-HeadQuaters topology,
+           * where all traffic on the Branch VPP should go to the Head Quaters VPP,
+           * and there it should go to internet or to other tunnel.
            */
           match0 = 0;
           if (fwabf_links_is_dpo_labeled_or_default_route (lb0, DPO_PROTO_IP4))
@@ -601,7 +602,7 @@ fwabf_input_ip4 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                     sc = FWABF_QUALITY_SC_STANDARD;
                   }
                   fia0 = fwabf_itf_attach_get (attachments0[match_acl_pos]);
-                  match0 = fwabf_policy_get_dpo (fia0->fia_policy, b0, lb0, sc, DPO_PROTO_IP4, &dpo0_policy);
+                  match0 = fwabf_policy_get_dpo_ip4 (fia0->fia_policy, b0, lb0, sc, &dpo0_policy);
                   if (PREDICT_TRUE(match0))
                     {
                       next0 = dpo0_policy.dpoi_next_node;
@@ -781,7 +782,7 @@ fwabf_input_ip6 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                     sc = FWABF_QUALITY_SC_STANDARD;
                   }
                   fia0 = fwabf_itf_attach_get (attachments0[match_acl_pos]);
-                  match0 = fwabf_policy_get_dpo (fia0->fia_policy, b0, lb0, sc, DPO_PROTO_IP6, &dpo0_policy);
+                  match0 = fwabf_policy_get_dpo_ip6 (fia0->fia_policy, b0, lb0, sc, &dpo0_policy);
                   if (PREDICT_TRUE(match0))
                     {
                       next0 = dpo0_policy.dpoi_next_node;

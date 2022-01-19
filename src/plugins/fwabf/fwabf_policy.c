@@ -87,25 +87,6 @@ static fwabf_policy_t *abf_policy_pool;
   */
 static fwabf_policy_t *abf_policy_db;
 
-/**
- * The action to be taken when FIB LOOKUP brings default route.
- * If this action is not set, policy will use the policy specific action.
- * The default route action is used for feature, where all internet traffic
- * should be proxied through another remote flexiEdge device. To do that
- * the local device should use default policy with labels of tunnels to the remote
- * device, and the remote device should be configured with default route action
- * with DIA labels. So on the local device the internet traffic will be pushed
- * into tunnel and on remote device it will be pushed into WAN interface.
- * Note same policy can be configured on both the local and the remote devices,
- * so proper tunnel will be used for internet traffic in both upstream and
- * downstream directions. The default route action should be set on the remote
- * device only.
- */
-static fwabf_policy_action_t default_route_action;
-
-#define FWABF_POLICY_ACTION_IS_ACTIVE(_dra) (_dra.link_groups!=NULL)
-
-
 
 #define FWABF_GET_INDEX_BY_FLOWHASH(_flowhash, _vec_len_pow2_mask, _vec_len_minus_1, _res) \
       (((_res = (_flowhash & _vec_len_pow2_mask)) <= _vec_len_minus_1) ? _res : (_res & _vec_len_minus_1))
@@ -115,17 +96,18 @@ static fwabf_policy_action_t default_route_action;
  * and the policy labeled DPO-s. If there is no intersection, than the lookup
  * DPO is used or packet is dropped, depending on the policy action fallback.
  * The exception of this algorithm happens, when FIB lookup brings DPO of
- * the default route (prefix 0.0.0.0/0). In this case we use policy labeled DPO
+ * the default route (prefix 0.0.0.0/0) and policy is configured to override default
+ * route (see Branch-to-HQ use case). In this case we use policy labeled DPO
  * directly. In this way we enforce packets designated for open internet to go
  * into labeled tunnel/WAN interface. For example, if user configured
  * policy to redirect Facebook traffic into tunnel, we will do this even
  * if FIB prefers to use default route for it. Because this is what user
  * wants us to do.
  */
-#define FWABF_POLICY_GET_DPO(_fwlabel, _lb, _dpo_proto, _is_default_route_lb) \
-    (_is_default_route_lb) ? \
+#define FWABF_POLICY_GET_DPO(_policy, _fwlabel, _lb, _is_default_route_lb, _dpo_proto) \
+    (_is_default_route_lb && _policy->override_default_route) ? \
     fwabf_links_get_labeled_dpo (_fwlabel) : \
-    fwabf_links_get_dpo (_fwlabel, _lb, _dpo_proto)
+    fwabf_links_get_intersected_dpo (_fwlabel, _lb, _dpo_proto)
 
 static void fwabf_policy_action_delete (fwabf_policy_action_t* action);
 
@@ -163,7 +145,7 @@ fwabf_policy_find (u32 policy_id)
 
 
 u32
-fwabf_policy_add (u32 policy_id, u32 acl_index, fwabf_policy_action_t * action)
+fwabf_policy_add (u32 policy_id, u32 acl_index, fwabf_policy_action_t * action, u8 override_default_route)
 {
   fwabf_policy_t*            p;
   u32 pi;
@@ -181,6 +163,7 @@ fwabf_policy_add (u32 policy_id, u32 acl_index, fwabf_policy_action_t * action)
   p->acl = acl_index;
   p->id  = policy_id;
   p->action = *action;
+  p->override_default_route = override_default_route;
 
   p->refCounter = 0;
 
@@ -188,7 +171,6 @@ fwabf_policy_add (u32 policy_id, u32 acl_index, fwabf_policy_action_t * action)
   p->counter_applied  = 0;
   p->counter_fallback = 0;
   p->counter_dropped  = 0;
-  p->counter_default_route = 0;
 
   /*
     * add this new policy to the DB
@@ -301,32 +283,53 @@ static void fwabf_policy_action_delete (fwabf_policy_action_t* action)
  *    the failed links. The active links are still able to provide load balance.
  *    We are OK with that for now (April 2020).
  *
- * @param p         the fwabf_policy_t object.
- * @param action    the fwabf_policy_t action - link labels to be used for forwarding.
+ * @param index     index of fwabf_policy_t in pool.
  * @param b         the vlib buffer to be forwarded.
- * @param lb        the DPO of Load Balance type retrieved by FIB lookup.
- * @param is_default_route_lb  if 1 the FIB lookup brought DPO that point to default route
+ * @param lb        the DPO of Load Balancing type retrieved by FIB lookup.
  * @param sc        traffic service class from ACL matched by packet
  * @param dpo       result of the function: the DPO to be used for forwarding.
  *                  If return value is not 0, this parameter has no effect.
  * @return 1 if the policy DPO provided within 'dpo' parameter should be used for forwarding,
  *         0 otherwise which effectively means the FIB lookup result DPO should be used.
  */
-static inline u32 fwabf_policy_get_dpo_ip4 (
-                                fwabf_policy_t*                 p,
-                                fwabf_policy_action_t*          action,
+u32 fwabf_policy_get_dpo_ip4 (
+                                index_t                         index,
                                 vlib_buffer_t*                  b,
                                 const load_balance_t*           lb,
-                                u32                             is_default_route_lb,
                                 fwabf_quality_service_class_t   sc,
                                 dpo_id_t*                       dpo)
 {
+  fwabf_policy_t*            p = fwabf_policy_get (index);
+  fwabf_policy_action_t*     action = &p->action;
   fwabf_policy_link_group_t* group;
   fwabf_label_t*             pfwlabel;
   fwabf_label_t              fwlabel;
+  u32                        is_default_route_lb;
   u32                        i;
   u32                        flow_hash = 0;
   ip4_header_t*              ip = vlib_buffer_get_current (b);
+
+  p->counter_matched++;  /*This function is called on ACL lookup hit only*/
+
+  /*
+   * Find out if the FIB lookup result (lb) has the default route.
+   * Policy might have the "override_default_route" flag.
+   * In this case the policy tunnels are choosen without intersection with FIB
+   * lookup results, so the default route is overrode.
+   * This algorithm is used for the Internet Gateway topology, where
+   * the local machine pushes all internet traffic into tunnel to the remote
+   * machine, where from this traffic goes to internet. We call such topology
+   * Branch-to-HQ, where Branch machine pushes internet traffic into tunnels
+   * toward the Head Quartes machine. We decide if the traffic is designated
+   * to internet by inspection the FIB lookup result. If it brings the default
+   * route rule, we push the traffic into tunnel.
+   * Note, this algorithm when applied on the remote (HQ) machine, pushes received
+   * on tunnel traffic back into the same tunnel, thus creating loop. To prevent
+   * this the customer should set the policy's "override_default_route" flag to False
+   * on the HQ machine.
+   */
+  is_default_route_lb = fwabf_links_is_dpo_default_route (lb, DPO_PROTO_IP4);
+
 
   /*
    * lb - is DPO of Load Balance type. It doesn't point to adjacency directly.
@@ -367,7 +370,7 @@ static inline u32 fwabf_policy_get_dpo_ip4 (
             i = FWABF_GET_INDEX_BY_FLOWHASH(
                   flow_hash, group->n_links_pow2_mask, group->n_links_minus_1, i);
             fwlabel = group->links[i];
-            *dpo    = FWABF_POLICY_GET_DPO(fwlabel, lb, DPO_PROTO_IP4, is_default_route_lb);
+            *dpo    = FWABF_POLICY_GET_DPO(p, fwlabel, lb, is_default_route_lb, DPO_PROTO_IP4);
             if (dpo_id_is_valid (dpo))
               {
                 p->counter_applied++;
@@ -400,7 +403,7 @@ static inline u32 fwabf_policy_get_dpo_ip4 (
        */
       vec_foreach (pfwlabel, group->links)
         {
-          *dpo = FWABF_POLICY_GET_DPO(*pfwlabel, lb, DPO_PROTO_IP4, is_default_route_lb);
+          *dpo = FWABF_POLICY_GET_DPO(p, *pfwlabel, lb, is_default_route_lb, DPO_PROTO_IP4);
           if (dpo_id_is_valid (dpo))
             {
               p->counter_applied++;
@@ -430,7 +433,7 @@ static inline u32 fwabf_policy_get_dpo_ip4 (
               flow_hash = ip4_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
             }
             fwlabel = group->links[flow_hash & group->n_links_minus_1];
-            *dpo    = FWABF_POLICY_GET_DPO(fwlabel, lb, DPO_PROTO_IP4, is_default_route_lb);
+            *dpo    = FWABF_POLICY_GET_DPO(p, fwlabel, lb, is_default_route_lb, DPO_PROTO_IP4);
             if (dpo_id_is_valid (dpo))
               {
                 p->counter_applied++;
@@ -460,7 +463,7 @@ static inline u32 fwabf_policy_get_dpo_ip4 (
       */
       vec_foreach (pfwlabel, group->links)
         {
-          *dpo = FWABF_POLICY_GET_DPO(*pfwlabel, lb, DPO_PROTO_IP4, is_default_route_lb);
+          *dpo = FWABF_POLICY_GET_DPO(p, *pfwlabel, lb, is_default_route_lb, DPO_PROTO_IP4);
           if (dpo_id_is_valid (dpo))
             {
               p->counter_applied++;
@@ -488,32 +491,53 @@ static inline u32 fwabf_policy_get_dpo_ip4 (
 /**
  * Get DPO to be used for packet forwarding according to policy.
  *
- * @param p         the fwabf_policy_t object.
- * @param action    the fwabf_policy_t action - link labels to be used for forwarding.
- * @param b         the buffer to be forwarded
+ * @param index     index of fwabf_policy_t in pool.
+ * @param b         the vlib buffer to be forwarded.
  * @param lb        the DPO of Load Balancing type retrieved by FIB lookup.
- * @param is_default_route_lb  if 1 the FIB lookup brought DPO that point to default route
  * @param sc        traffic service class from ACL matched by packet
  * @param dpo       result of the function: the DPO to be used for forwarding.
  *                  If return value is not 0, this parameter has no effect.
  * @return 1 if the policy DPO provided within 'dpo' parameter should be used for forwarding,
  *         0 otherwise which effectively means the FIB lookup result DPO should be used.
  */
-static inline u32 fwabf_policy_get_dpo_ip6 (
-                                fwabf_policy_t*                 p,
-                                fwabf_policy_action_t*          action,
+u32 fwabf_policy_get_dpo_ip6 (
+                                index_t                         index,
                                 vlib_buffer_t*                  b,
                                 const load_balance_t*           lb,
-                                u32                             is_default_route_lb,
                                 fwabf_quality_service_class_t   sc,
                                 dpo_id_t*                       dpo)
 {
+  fwabf_policy_t*            p = fwabf_policy_get (index);
+  fwabf_policy_action_t*     action = &p->action;
   fwabf_policy_link_group_t* group;
   fwabf_label_t*             pfwlabel;
   fwabf_label_t              fwlabel;
+  u32                        is_default_route_lb;
   u32                        i;
   u32                        flow_hash = 0;
   ip6_header_t*              ip = vlib_buffer_get_current (b);
+
+  p->counter_matched++;  /*This function is called on ACL lookup hit only*/
+
+  /*
+   * Find out if the FIB lookup result (lb) has the default route.
+   * Policy might have the "override_default_route" flag.
+   * In this case the policy tunnels are choosen without intersection with FIB
+   * lookup results, so the default route is overrode.
+   * This algorithm is used for the Internet Gateway topology, where
+   * the local machine pushes all internet traffic into tunnel to the remote
+   * machine, where from this traffic goes to internet. We call such topology
+   * Branch-to-HQ, where Branch machine pushes internet traffic into tunnels
+   * toward the Head Quartes machine. We decide if the traffic is designated
+   * to internet by inspection the FIB lookup result. If it brings the default
+   * route rule, we push the traffic into tunnel.
+   * Note, this algorithm when applied on the remote (HQ) machine, pushes received
+   * on tunnel traffic back into the same tunnel, thus creating loop. To prevent
+   * this the customer should set the policy's "override_default_route" flag to False
+   * on the HQ machine.
+   */
+  is_default_route_lb = fwabf_links_is_dpo_default_route (lb, DPO_PROTO_IP6);
+
 
   /*
    * lb - is DPO of Load Balance type. It doesn't point to adjacency directly.
@@ -554,7 +578,7 @@ static inline u32 fwabf_policy_get_dpo_ip6 (
             i = FWABF_GET_INDEX_BY_FLOWHASH(
                   flow_hash, group->n_links_pow2_mask, group->n_links_minus_1, i);
             fwlabel = group->links[i];
-            *dpo    = FWABF_POLICY_GET_DPO(fwlabel, lb, DPO_PROTO_IP6, is_default_route_lb);
+            *dpo    = FWABF_POLICY_GET_DPO(p, fwlabel, lb, is_default_route_lb, DPO_PROTO_IP6);
             if (dpo_id_is_valid (dpo))
               {
                 p->counter_applied++;
@@ -586,7 +610,7 @@ static inline u32 fwabf_policy_get_dpo_ip6 (
        */
       vec_foreach (pfwlabel, group->links)
         {
-          *dpo = FWABF_POLICY_GET_DPO(*pfwlabel, lb, DPO_PROTO_IP6, is_default_route_lb);
+          *dpo = FWABF_POLICY_GET_DPO(p, *pfwlabel, lb, is_default_route_lb, DPO_PROTO_IP6);
           if (dpo_id_is_valid (dpo))
             {
               p->counter_applied++;
@@ -616,7 +640,7 @@ static inline u32 fwabf_policy_get_dpo_ip6 (
               flow_hash = ip6_compute_flow_hash (ip, IP_FLOW_HASH_DEFAULT);
             }
             fwlabel = group->links[flow_hash & group->n_links_minus_1];
-            *dpo    = FWABF_POLICY_GET_DPO(fwlabel, lb, DPO_PROTO_IP6, is_default_route_lb);
+            *dpo    = FWABF_POLICY_GET_DPO(p, fwlabel, lb, is_default_route_lb, DPO_PROTO_IP6);
             if (dpo_id_is_valid (dpo))
               {
                 p->counter_applied++;
@@ -644,7 +668,7 @@ static inline u32 fwabf_policy_get_dpo_ip6 (
 
       vec_foreach (pfwlabel, group->links)
         {
-          *dpo = FWABF_POLICY_GET_DPO(*pfwlabel, lb, DPO_PROTO_IP6, is_default_route_lb);
+          *dpo = FWABF_POLICY_GET_DPO(p, *pfwlabel, lb, is_default_route_lb, DPO_PROTO_IP6);
           if (dpo_id_is_valid (dpo))
             {
               p->counter_applied++;
@@ -669,52 +693,6 @@ static inline u32 fwabf_policy_get_dpo_ip6 (
   return 1;
 }
 
-inline u32 fwabf_policy_get_dpo (
-                                index_t                         index,
-                                vlib_buffer_t*                  b,
-                                const load_balance_t*           lb,
-                                fwabf_quality_service_class_t   sc,
-                                dpo_proto_t                     proto,
-                                dpo_id_t*                       dpo)
-{
-  fwabf_policy_t*        policy = fwabf_policy_get (index);
-  fwabf_policy_action_t* action;
-  u32                    dpo_found;
-  u32                    is_default_route_lb;
-
-  policy->counter_matched++;  /*This function is called on ACL lookup hit only*/
-
-  /*
-   * At this point we have to understand if the FIB lookup found
-   * the default route rule. Policy might have the "default route action" -
-   * the action to be applied to the packet in this case. This action just like
-   * normal policy action might have group of links. In comparisson to the normal
-   * policy action the links should have DIA labels.
-   * The default route action is used for the Internet Gateway topology, where
-   * the local machine pushes all internet traffic into tunnel to the remote
-   * machine, where from this traffic goes to internet. I call the remote machine
-   * the Internet Gateway. We decide if the traffic is designated to internet by
-   * inspection the FIB lookup result. If it brings the default route rule,
-   * we push the traffic into tunnel. If same policy is applied on the remote
-   * machine, it will push the received on tunnel internet traffic back into tunnel
-   * instead of forwarding it to internet. To prevent this a customer should
-   * set the default route action with DIA labels on the remote machine,
-   * so packets designated for internet will be sent on WAN interfaces.
-   */
-  is_default_route_lb = fwabf_links_is_dpo_default_route (lb, proto);
-  if (PREDICT_FALSE(is_default_route_lb && default_route_action.link_groups != NULL))
-  {
-    policy->counter_default_route++;
-    action = &default_route_action;
-  }
-  else
-    action = &policy->action;
-
-  dpo_found = (proto==DPO_PROTO_IP4) ?
-              fwabf_policy_get_dpo_ip4 (policy, action, b, lb, is_default_route_lb, sc, dpo):
-              fwabf_policy_get_dpo_ip6 (policy, action, b, lb, is_default_route_lb, sc, dpo);
-  return dpo_found;
-}
 
 uword
 unformat_labels (unformat_input_t * input, va_list * args)
@@ -842,6 +820,7 @@ fwabf_policy_cmd (vlib_main_t * vm, unformat_input_t * main_input, vlib_cli_comm
   u32                   acl_index;
   u32                   policy_id;
   u32                   is_del;
+  u8                    override_default_route;
   u32                   ret;
 
   is_del    = 0;
@@ -863,6 +842,8 @@ fwabf_policy_cmd (vlib_main_t * vm, unformat_input_t * main_input, vlib_cli_comm
         is_del = 1;
       else if (unformat (line_input, "add"))
         is_del = 0;
+      else if (unformat (line_input, "override_default_route"))
+        override_default_route = 1;
       else if (unformat (line_input, "action %U", unformat_action, vm, &policy_action))
         ;
       else
@@ -888,7 +869,7 @@ fwabf_policy_cmd (vlib_main_t * vm, unformat_input_t * main_input, vlib_cli_comm
 
   if (!is_del)
     {
-      ret = fwabf_policy_add (policy_id, acl_index, &policy_action);
+      ret = fwabf_policy_add (policy_id, acl_index, &policy_action, override_default_route);
     }
   else
     {
@@ -908,7 +889,7 @@ fwabf_policy_cmd (vlib_main_t * vm, unformat_input_t * main_input, vlib_cli_comm
 VLIB_CLI_COMMAND (fwabf_policy_cmd_node, static) = {
   .path = "fwabf policy",
   .function = fwabf_policy_cmd,
-  .short_help = "fwabf policy [add|del] id <index> acl <index> action [select_group random] [fallback drop] [group <id>] [random|quality] labels <label1,label2,...> [group <id> [random|quality] labels <label1,label2,...>] ...",
+  .short_help = "fwabf policy [add|del] id <index> acl <index> [override_default_route] action [select_group random] [fallback drop] [group <id>] [random|quality] labels <label1,label2,...> [group <id> [random|quality] labels <label1,label2,...>] ...",
   .is_mp_safe = 1,
 };
 /* *INDENT-ON* */
@@ -975,10 +956,10 @@ format_abf (u8 * s, va_list * args)
 {
   fwabf_policy_t *p = va_arg (*args, fwabf_policy_t *);
 
-  s = format (s, "fwabf:[%d]: policy:%d acl:%d\n",
-	      p - abf_policy_pool, p->id, p->acl);
-  s = format (s, " counters: matched:%d applied:%d fallback:%d dropped:%d default route:%d\n",
-	      p->counter_matched, p->counter_applied, p->counter_fallback, p->counter_dropped, p->counter_default_route);
+  s = format (s, "fwabf:[%d]: policy:%d acl:%d override_default_route:%d\n",
+	      p - abf_policy_pool, p->id, p->acl, p->override_default_route);
+  s = format (s, " counters: matched:%d applied:%d fallback:%d dropped:%d\n",
+	      p->counter_matched, p->counter_applied, p->counter_fallback, p->counter_dropped);
   s = format (s, "%U", format_action, &p->action);
   return s;
 }
@@ -1030,103 +1011,6 @@ VLIB_CLI_COMMAND (abf_policy_show_policy_cmd_node, static) = {
   .is_mp_safe = 1,
 };
 /* *INDENT-ON* */
-
-static clib_error_t *
-fwabf_default_route_action_cmd (vlib_main_t * vm, unformat_input_t * input, vlib_cli_command_t * cmd)
-{
-  fwabf_policy_action_t policy_action;
-  u32                   is_add    = 0;
-  u32                   is_del    = 0;
-  u32                   is_update = 0;
-
-  memset(&policy_action, 0, sizeof(policy_action));
-
-  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
-    {
-      if (unformat (input, "del"))
-        is_del = 1;
-      else if (unformat (input, "add"))
-        is_add = 1;
-      else if (unformat (input, "update"))
-        is_update = 1;
-      else if (unformat (input, "%U", unformat_action, vm, &policy_action))
-        ;
-      else
-        return (clib_error_return (0, "unknown input '%U'",
-                                   format_unformat_error, input));
-    }
-
-  if (policy_action.link_groups == NULL && (is_add || is_update))
-    {
-      vlib_cli_output (vm, "specify at least one group of links in action");
-      return 0;
-    }
-
-  if (is_add)
-    {
-      if (FWABF_POLICY_ACTION_IS_ACTIVE(default_route_action))
-        {
-            return (clib_error_return (0, "default route action exists"));
-        }
-      default_route_action = policy_action;
-    }
-  else if (is_del)
-    {
-      if (FWABF_POLICY_ACTION_IS_ACTIVE(default_route_action))
-      {
-        fwabf_policy_action_delete(&default_route_action);
-      }
-    }
-  else if (is_update)
-    {
-      if (FWABF_POLICY_ACTION_IS_ACTIVE(default_route_action))
-        {
-          fwabf_policy_action_delete(&default_route_action);
-        }
-      default_route_action = policy_action;
-    }
-
-  return 0;
-}
-
-/* *INDENT-OFF* */
-/**
- * Create an ABF policy.
- */
-VLIB_CLI_COMMAND (fwabf_default_route_action_cmd_node, static) = {
-  .path = "fwabf default_route_action",
-  .function = fwabf_default_route_action_cmd,
-  .short_help = "fwabf default_route_action [add|del|update] [select_group random] [fallback drop] [group <id>] [random] labels <label1,label2,...> [group <id> [random] labels <label1,label2,...>] ...",
-  .is_mp_safe = 1,
-};
-/* *INDENT-ON* */
-
-static clib_error_t *
-fwabf_default_route_action_show_cmd (vlib_main_t * vm,
-		     unformat_input_t * input, vlib_cli_command_t * cmd)
-{
-  if (FWABF_POLICY_ACTION_IS_ACTIVE(default_route_action))
-    vlib_cli_output (vm, "%U", format_action, &default_route_action);
-  return (NULL);
-}
-
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (fwabf_default_route_action_show_cmd_node, static) = {
-  .path = "show fwabf default_route_action",
-  .function = fwabf_default_route_action_show_cmd,
-  .short_help = "show fwabf default_route_action",
-  .is_mp_safe = 1,
-};
-/* *INDENT-ON* */
-
-static clib_error_t *
-fwabf_policy_init (vlib_main_t * vm)
-{
-  default_route_action.link_groups = NULL;
-  return (NULL);
-}
-
-VLIB_INIT_FUNCTION (fwabf_policy_init);
 
 /*
  * fd.io coding-style-patch-verification: ON
