@@ -682,6 +682,14 @@ api_ikev2_profile_set_ipsec_udp_port (vat_main_t * vam)
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE
+static int
+api_ikev2_profile_set_gateway (vat_main_t * vam)
+{
+  return 0;
+}
+#endif
+
 static int
 api_ikev2_profile_set_liveness (vat_main_t * vam)
 {

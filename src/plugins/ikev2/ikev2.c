@@ -25,10 +25,11 @@
  *   - Improved search for child sa inside ikev2_sa_get_child by checking both rspi and ispi.
  *   - Allow rekeying initiated by Strongswan responder.
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
- *   - New parameter for ipip_add_tunnel() API - GW - to accomodate path selection policy for peer
+ *   - New parameter for ipip_add_tunnel() API - GW - to accommodate path selection policy for peer
  *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
- *     default route.
- */
+ *     default route. The IKEv2 API was enhanced as well to enable user to specify gateway
+ *     for IKE traffic.
+*/
 
 #include <vlib/vlib.h>
 #include <vlib/unix/plugin.h>
@@ -45,6 +46,14 @@
 #include <plugins/ikev2/ikev2_priv.h>
 #include <openssl/sha.h>
 #include <vnet/ipsec/ipsec_punt.h>
+
+#ifdef FLEXIWAN_FEATURE
+#include <vnet/dpo/dpo.h>
+#include <vnet/dpo/load_balance_map.h>
+#include <vnet/fib/fib_path_list.h>
+#include <vnet/fib/fib_table.h>
+#include <vnet/fib/fib_walk.h>
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 #define IKEV2_LIVENESS_RETRIES 3
 #define IKEV2_LIVENESS_PERIOD_CHECK 30
@@ -137,6 +146,9 @@ static char *ikev2_error_strings[] = {
 typedef enum
 {
   IKEV2_NEXT_IP4_LOOKUP,
+#ifdef FLEXIWAN_FEATURE
+  IKEV2_NEXT_IP4_REWRITE,
+#endif
   IKEV2_NEXT_IP4_ERROR_DROP,
   IKEV2_IP4_N_NEXT,
 } ikev2_ip4_next_t;
@@ -144,11 +156,37 @@ typedef enum
 typedef enum
 {
   IKEV2_NEXT_IP6_LOOKUP,
+#ifdef FLEXIWAN_FEATURE
+  IKEV2_NEXT_IP6_REWRITE,
+#endif
   IKEV2_NEXT_IP6_ERROR_DROP,
   IKEV2_IP6_N_NEXT,
 } ikev2_ip6_next_t;
 
 typedef u32 ikev2_non_esp_marker;
+
+#ifdef FLEXIWAN_FEATURE
+/*
+ * The IKEV2_SA_DPO_ADJACENCY_UP macro returns TRUE if adjacency referenced by
+ * by DPO is reachable and can be used for packet forwarding.
+ * DPO_ADJACENCY - the adjacency was ARP resolved and can be used for forwarding
+ *                 This state is used for physical adjacencies, like WAN interfaces.
+ * DPO_ADJACENCY_MIDCHAIN - the adjacency is a kind of virtual adjacency, that
+ *                 was resolved to the other midchain/physical adjacency that
+ *                 in turn was ARP resolved and can be used for packet forwarding.
+ * DPO_ADJACENCY_INCOMPLETE - the adjacency is not ARP resolved and can't be used
+ *                 for packet forwarding.
+ * All the rest of DPO types are not relevant for attached next hop.
+ */
+#define IKEV2_SA_DPO_ADJACENCY_UP(_dpo) ((_dpo).dpoi_type == DPO_ADJACENCY || \
+                                         (_dpo).dpoi_type == DPO_ADJACENCY_MIDCHAIN)
+
+
+static void gw_refresh_dpo(ikev2_profile_t * p);
+
+static u32 ikev2_get_profile_gateway_adj (vlib_main_t * vm, u32 p_index, u32 * adj_index);
+
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 static_always_inline u16
 ikev2_get_port (ikev2_sa_t * sa)
@@ -3308,6 +3346,28 @@ ikev2_node_internal (vlib_main_t * vm,
 	      ikev2_rewrite_v6_addrs (sa0, ip60);
 	    }
 
+#ifdef FLEXIWAN_FEATURE
+	  /* If GW was set into SA, bypass lookup for the remote address.
+         Instead, go directly to ip4-rewrite with DPO of the GW adjacency,
+         so the packet will be sent on the proper WAN interface.
+         If the GW is down, drop the packet. This logic is needed to assist
+         peer tunnels on multi-WAN devices.
+	  */
+      u32 adj_index;
+	  if (PREDICT_TRUE(ikev2_get_profile_gateway_adj(vm, sa0->profile_index, &adj_index)))
+	    {
+	      if (PREDICT_FALSE(adj_index == ~0))
+            {
+	          next[0] = (is_ip4) ? IKEV2_NEXT_IP4_ERROR_DROP : IKEV2_NEXT_IP6_ERROR_DROP;
+            }
+          else
+            {
+	          next[0] = (is_ip4) ? IKEV2_NEXT_IP4_REWRITE : IKEV2_NEXT_IP6_REWRITE;
+	          vnet_buffer (b0)->ip.adj_index[VLIB_TX] = adj_index;
+            }
+	    }
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
 	  if (is_req)
 	    {
 	      udp0->dst_port = udp0->src_port =
@@ -3400,6 +3460,7 @@ VLIB_REGISTER_NODE (ikev2_node_ip4,static) = {
   .n_next_nodes = IKEV2_IP4_N_NEXT,
   .next_nodes = {
     [IKEV2_NEXT_IP4_LOOKUP] = "ip4-lookup",
+    [IKEV2_NEXT_IP4_REWRITE] = "ip4-rewrite",
     [IKEV2_NEXT_IP4_ERROR_DROP] = "error-drop",
   },
 };
@@ -3417,6 +3478,7 @@ VLIB_REGISTER_NODE (ikev2_node_ip6,static) = {
   .n_next_nodes = IKEV2_IP6_N_NEXT,
   .next_nodes = {
     [IKEV2_NEXT_IP6_LOOKUP] = "ip6-lookup",
+    [IKEV2_NEXT_IP6_REWRITE] = "ip6-rewrite",
     [IKEV2_NEXT_IP6_ERROR_DROP] = "error-drop",
   },
 };
@@ -3564,9 +3626,14 @@ ikev2_profile_index_by_name (u8 * name)
 }
 
 
+#ifdef FLEXIWAN_FEATURE
 static void
 ikev2_send_ike (vlib_main_t * vm, ip_address_t * src, ip_address_t * dst,
+		u32 bi0, u32 len, u16 src_port, u16 dst_port, u32 sw_if_index, ikev2_sa_t * sa)
+#else
+ikev2_send_ike (vlib_main_t * vm, ip_address_t * src, ip_address_t * dst,
 		u32 bi0, u32 len, u16 src_port, u16 dst_port, u32 sw_if_index)
+#endif
 {
   ip4_header_t *ip40;
   ip6_header_t *ip60;
@@ -3624,6 +3691,29 @@ ikev2_send_ike (vlib_main_t * vm, ip_address_t * src, ip_address_t * dst,
 
   u32 next_index = (ip_addr_version (dst) == AF_IP4) ?
     ip4_lookup_node.index : ip6_lookup_node.index;
+
+#ifdef FLEXIWAN_FEATURE
+	  /* If GW was set into SA, bypass lookup for the remote address.
+         Instead, go directly to ip4-rewrite with DPO of the GW adjacency,
+         so the packet will be sent on the proper WAN interface.
+         If the GW is down, drop the packet. This logic is needed to assist
+         peer tunnels on multi-WAN devices.
+	  */
+      u32 adj_index;
+	  if (PREDICT_TRUE(ikev2_get_profile_gateway_adj(vm, sa->profile_index, &adj_index)))
+	    {
+	      if (PREDICT_FALSE(adj_index == ~0))
+            {
+	          next_index = ikev2_main.error_drop_node_index;
+            }
+          else
+            {
+	          int is_ip4 = (ip_addr_version (dst) == AF_IP4);
+	          next_index = (is_ip4) ? ip4_rewrite_node.index : ip6_rewrite_node.index;
+	          vnet_buffer (b0)->ip.adj_index[VLIB_TX] = adj_index;
+            }
+	    }
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
   /* send the request */
   f = vlib_get_frame_to_node (vm, next_index);
@@ -3767,7 +3857,7 @@ ikev2_initiate_delete_ike_sa_internal (vlib_main_t * vm,
 	}
 
       ikev2_send_ike (vm, src, dst, bi0, len,
-		      ikev2_get_port (sa), sa->dst_port, 0);
+		      ikev2_get_port (sa), sa->dst_port, 0, sa);
     }
 
 delete_sa:
@@ -3834,6 +3924,30 @@ ikev2_cleanup_profile_sessions (ikev2_main_t * km, ikev2_profile_t * p)
 static void
 ikev2_profile_free (ikev2_profile_t * p)
 {
+#ifdef FLEXIWAN_FEATURE
+  if (p->pathlist_index != ~0)
+  {
+    /*
+    * Release adjacency if our link is the last owner.
+    */
+    dpo_reset (&p->dpo);
+
+    /*
+    * No explict call to fib_path_list_destroy!
+    * It is destroyed by fib_path_list_copy_and_path_remove() on removal last path.
+    * As we have only one path - path to remote tunnel end or to wan gateway,
+    * the path removal should cause list destroy.
+    */
+    fib_node_index_t old_pl = p->pathlist_index;
+    p->pathlist_index = fib_path_list_copy_and_path_remove(
+                            p->pathlist_index, p->pathlist_flags, p->pathlist_rpath);
+    ASSERT(p->pathlist_index==INDEX_INVALID);
+    vec_free(p->pathlist_rpath);
+    fib_path_list_child_remove(old_pl, p->pathlist_sibling);
+    p->pathlist_sibling = ~0;
+  }
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
   vec_free (p->name);
 
   vec_free (p->auth.data);
@@ -3861,6 +3975,9 @@ ikev2_add_del_profile (vlib_main_t * vm, u8 * name, int is_add)
       p->ipsec_over_udp_port = IPSEC_UDP_PORT_NONE;
       p->responder.sw_if_index = ~0;
       p->tun_itf = ~0;
+#ifdef FLEXIWAN_FEATURE
+      p->pathlist_index = ~0;
+#endif
       uword index = p - km->profiles;
       mhash_set_mem (&km->profile_index_by_name, name, &index, 0);
     }
@@ -4140,6 +4257,126 @@ ikev2_set_profile_ipsec_udp_port (vlib_main_t * vm, u8 * name, u16 port,
   return rv;
 }
 
+#ifdef FLEXIWAN_FEATURE
+vnet_api_error_t
+ikev2_set_profile_gateway (vlib_main_t * vm, u8 * name, fib_route_path_t * gw)
+{
+  ikev2_profile_t *p = ikev2_profile_index_by_name (name);
+  u32 profile_index = p - km->profiles;
+
+  if (!p)
+    return VNET_API_ERROR_INVALID_VALUE;
+
+  p->gw = *gw;
+
+  /*
+   * Create pathlist object and become it's child, so we get updates when
+   * forwarding changes. sa.fnode is needed to become a part of FIB tree,
+   * so we could get updates from parent object.
+   */
+  fib_node_init (&p->fnode, ikev2_main.fib_node_type_ikev2_profile);
+  p->pathlist_flags   = FIB_PATH_LIST_FLAG_SHARED;
+  p->pathlist_rpath   = 0;
+  vec_add1(p->pathlist_rpath, p->gw);
+  p->pathlist_index   = fib_path_list_create (p->pathlist_flags, p->pathlist_rpath);
+  p->pathlist_sibling = fib_path_list_child_add (
+          p->pathlist_index, ikev2_main.fib_node_type_ikev2_profile, profile_index);
+
+  /*
+   * Update forwarding info of the pathlist, so it will be bound to the right
+   * DPO to be used for forwarding according this pathlist,
+   * and attach the SA object to this DPO.
+   */
+  ASSERT((p->gw.frp_proto==DPO_PROTO_IP4 || p->gw.frp_proto==DPO_PROTO_IP6));
+  dpo_reset (&p->dpo);
+  gw_refresh_dpo(p);
+
+  return 0;
+}
+
+/**
+ * Updates forwarding info of the pathlist, so the pathlist will resolve
+ * to the right DPO to be used for forwarding according this pathlist,
+ * saves this DPO into profilefor fast use and attaches the ikev2 node to it.
+ * The attachment is called 'stack on dpo' in terms of vpp. It creates edge in
+ * vlib graph from ikev2 node to the node bound to the forwarding DPO,
+ * e.g. ip4-rewrite.
+ */
+static
+void gw_refresh_dpo(ikev2_profile_t * p)
+{
+  dpo_id_t                 via_dpo = DPO_INVALID;
+  fib_forward_chain_type_t fwd_chain_type;
+  u32                      ikev2_node_index;
+
+  if (p->gw.frp_proto == DPO_PROTO_IP4)
+    {
+      ikev2_node_index = ikev2_node_ip4.index;
+      fwd_chain_type   = FIB_FORW_CHAIN_TYPE_UNICAST_IP4;
+    }
+  else
+    {
+      ikev2_node_index = ikev2_node_ip6.index;
+      fwd_chain_type   = FIB_FORW_CHAIN_TYPE_UNICAST_IP6;
+    }
+
+  fib_path_list_contribute_forwarding (
+      p->pathlist_index, fwd_chain_type, FIB_PATH_LIST_FWD_FLAG_COLLAPSE, &via_dpo);
+  dpo_stack_from_node (ikev2_node_index, &p->dpo, &via_dpo);
+  dpo_reset (&via_dpo);
+}
+
+static ikev2_profile_t *
+profile_from_fib_node (fib_node_t * node)
+{
+  ASSERT (ikev2_main.fib_node_type_ikev2_profile == node->fn_type);
+  return ((ikev2_profile_t *) (((char *) node) - STRUCT_OFFSET_OF (ikev2_profile_t, fnode)));
+}
+
+/**
+ * Function definition to backwalk a FIB node -
+ * Here we will update our DPO by restack it on GW adjacency DPO.
+ */
+static fib_node_back_walk_rc_t
+ikev2_fib_back_walk (fib_node_t * node, fib_node_back_walk_ctx_t * ctx)
+{
+  gw_refresh_dpo(profile_from_fib_node(node));
+  return (FIB_NODE_BACK_WALK_CONTINUE);
+}
+
+/**
+ * Function definition to get a FIB node from its index
+ */
+static fib_node_t *
+ikev2_fib_node_get (fib_node_index_t index)
+{
+  ikev2_main_t*    km = &ikev2_main;
+  ikev2_profile_t* p;
+
+  p = pool_elt_at_index (km->profiles, index);
+  return (&p->fnode);
+}
+
+/**
+ * Function definition to inform the FIB node that its last lock has gone.
+ */
+static void
+ikev2_fib_last_lock_gone (fib_node_t * node)
+{
+  /* Nobody stacks on SA, i.e. SA has no children, thus it is never locked */
+}
+
+/*
+ * Virtual function table registered by VXLAN tunnels
+ * for participation in the FIB object graph.
+ */
+const static fib_node_vft_t ikev2_fib_vft = {
+  .fnv_get       = ikev2_fib_node_get,
+  .fnv_back_walk = ikev2_fib_back_walk,
+  .fnv_last_lock = ikev2_fib_last_lock_gone,
+};
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
 clib_error_t *
 ikev2_set_profile_udp_encap (vlib_main_t * vm, u8 * name)
 {
@@ -4206,6 +4443,37 @@ ikev2_get_if_address (u32 sw_if_index, ip_address_family_t af,
     }
   return 0;
 }
+
+#ifdef FLEXIWAN_FEATURE
+/**
+ * If gateway was set into profile, this function returns 1 and retrieves
+ * index of adjacency that should be used to send messages toward the gateway.
+ * Note if the gateway is not reachable right now, the adjacency index is set to ~0.
+ */
+static u32
+ikev2_get_profile_gateway_adj (vlib_main_t * vm, u32 p_index, u32 * adj_index)
+{
+  ikev2_main_t* km = &ikev2_main;
+  ikev2_profile_t* p;
+
+  p = pool_elt_at_index (km->profiles, p_index);
+  if (PREDICT_FALSE(!p))
+    return 0;
+
+  if (PREDICT_FALSE(p->pathlist_index == ~0))
+    return 0;
+
+  if (PREDICT_TRUE(IKEV2_SA_DPO_ADJACENCY_UP(p->dpo)))
+  {
+    *adj_index = p->dpo.dpoi_index;
+  }
+  else
+  {
+    *adj_index = ~0;
+  }
+  return 1;
+}
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 clib_error_t *
 ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name)
@@ -4370,7 +4638,7 @@ ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name)
   if (valid_ip)
     {
       ikev2_send_ike (vm, &if_ip, &p->responder.addr, bi0, len,
-		      IKEV2_PORT, sa.dst_port, sa.sw_if_index);
+		      IKEV2_PORT, sa.dst_port, sa.sw_if_index, sa0);
 
       ikev2_elog_exchange
 	("ispi %lx rspi %lx IKEV2_EXCHANGE_SA_INIT sent to ",
@@ -4425,7 +4693,7 @@ ikev2_delete_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   if (ikev2_natt_active (sa))
     len = ikev2_insert_non_esp_marker (ike0, len);
   ikev2_send_ike (vm, &sa->iaddr, &sa->raddr, bi0, len,
-		  ikev2_get_port (sa), sa->dst_port, sa->sw_if_index);
+		  ikev2_get_port (sa), sa->dst_port, sa->sw_if_index, sa);
 
   /* delete local child SA */
   ikev2_delete_tunnel_interface (km->vnet_main, sa, csa);
@@ -4555,7 +4823,7 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   if (ikev2_natt_active (sa))
     len = ikev2_insert_non_esp_marker (ike0, len);
   ikev2_send_ike (vm, &sa->iaddr, &sa->raddr, bi0, len,
-		  ikev2_get_port (sa), ikev2_get_port (sa), sa->sw_if_index);
+		  ikev2_get_port (sa), ikev2_get_port (sa), sa->sw_if_index, sa);
   vec_free (proposals);
 }
 
@@ -4720,6 +4988,12 @@ ikev2_init (vlib_main_t * vm)
 
   km->log_level = IKEV2_LOG_ERROR;
   km->log_class = vlib_log_register_class ("ikev2", 0);
+
+#ifdef FLEXIWAN_FEATURE
+  fib_node_register_type (km->fib_node_type_ikev2_profile, &ikev2_fib_vft);
+  vlib_node_t *error_drop_node = vlib_get_node_by_name(vm, (u8*) "error-drop");
+  km->error_drop_node_index = error_drop_node->index;
+#endif
   return 0;
 }
 
@@ -4965,7 +5239,7 @@ ikev2_process_pending_sa_init_one (ikev2_main_t * km, ikev2_sa_t * sa)
 
   ikev2_send_ike (km->vlib_main, &sa->iaddr, &sa->raddr, bi0,
 		  vec_len (sa->last_sa_init_req_packet_data),
-		  ikev2_get_port (sa), IKEV2_PORT, sa->sw_if_index);
+		  ikev2_get_port (sa), IKEV2_PORT, sa->sw_if_index, sa);
 }
 
 static void
@@ -5032,7 +5306,7 @@ ikev2_send_informational_request (ikev2_sa_t * sa)
 
   dp = sa->dst_port ? sa->dst_port : ikev2_get_port (sa);
   ikev2_send_ike (km->vlib_main, src, dst, bi0, len, ikev2_get_port (sa), dp,
-		  sa->sw_if_index);
+		  sa->sw_if_index, sa);
 }
 
 void

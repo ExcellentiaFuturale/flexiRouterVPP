@@ -12,6 +12,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - Enable user to specify gateway that should be used for IKE traffic.
+ *     This is needed for FlexiWAN multi-link policy feature on multi-WAN devices.
+ */
+
 #ifndef __included_ikev2_h__
 #define __included_ikev2_h__
 
@@ -416,6 +424,10 @@ clib_error_t *ikev2_set_profile_tunnel_interface (vlib_main_t * vm, u8 * name,
 vnet_api_error_t ikev2_set_profile_ipsec_udp_port (vlib_main_t * vm,
 						   u8 * name, u16 port,
 						   u8 is_set);
+#ifdef FLEXIWAN_FEATURE
+vnet_api_error_t ikev2_set_profile_gateway (vlib_main_t * vm, u8 * name, fib_route_path_t * gw);
+#endif
+
 clib_error_t *ikev2_set_profile_udp_encap (vlib_main_t * vm, u8 * name);
 clib_error_t *ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name);
 clib_error_t *ikev2_initiate_delete_child_sa (vlib_main_t * vm, u32 ispi);

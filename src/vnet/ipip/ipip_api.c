@@ -53,11 +53,6 @@ vl_api_ipip_add_tunnel_t_handler (vl_api_ipip_add_tunnel_t * mp)
   itype[0] = ip_address_decode (&mp->tunnel.src, &src);
   itype[1] = ip_address_decode (&mp->tunnel.dst, &dst);
 
-#ifdef FLEXIWAN_FEATURE
-  ip46_address_t gw;
-  ip_address_decode (&mp->tunnel.gw, &gw);
-#endif
-
   if (itype[0] != itype[1])
     {
       rv = VNET_API_ERROR_INVALID_PROTOCOL;
@@ -69,6 +64,11 @@ vl_api_ipip_add_tunnel_t_handler (vl_api_ipip_add_tunnel_t * mp)
       rv = VNET_API_ERROR_SAME_SRC_DST;
       goto out;
     }
+
+#ifdef FLEXIWAN_FEATURE
+  ip46_address_t gw;
+  ip_address_decode (&mp->tunnel.gw, &gw);
+#endif
 
   rv = tunnel_encap_decap_flags_decode (mp->tunnel.flags, &flags);
 

@@ -44,6 +44,10 @@ create_ipip_tunnel_command_fn (vlib_main_t * vm,
   bool ip4_set = false, ip6_set = false;
   tunnel_mode_t mode = TUNNEL_MODE_P2P;
   tunnel_encap_decap_flags_t flags = TUNNEL_ENCAP_DECAP_FLAG_NONE;
+#ifdef FLEXIWAN_FEATURE
+  ip46_address_t gw;
+  clib_memset(&gw, 0, sizeof(gw));
+#endif
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -88,6 +92,12 @@ create_ipip_tunnel_command_fn (vlib_main_t * vm,
 	    (line_input, "flags %U", unformat_tunnel_encap_decap_flags,
 	     &flags))
 	;
+#ifdef FLEXIWAN_FEATURE
+      else
+	if (unformat
+	    (line_input, "gw %U", format_ip46_address, &gw))
+	;
+#endif
       else
 	{
 	  error =
@@ -124,7 +134,7 @@ create_ipip_tunnel_command_fn (vlib_main_t * vm,
 			    &dst,
 			    fib_index,
 #ifdef FLEXIWAN_FEATURE
-			    flags, IP_DSCP_CS0, mode, NULL /*gw*/, &sw_if_index);
+			    flags, IP_DSCP_CS0, mode, &gw, &sw_if_index);
 #else
 			    flags, IP_DSCP_CS0, mode, &sw_if_index);
 #endif
@@ -263,9 +273,9 @@ format_ipip_tunnel (u8 * s, va_list * args)
 
 #ifdef FLEXIWAN_FEATURE
   if (PREDICT_TRUE(!(ip46_address_is_zero(&t->tunnel_gw))))
-    s = format (s, "gw %U", format_ip46_address, &t->tunnel_gw);
+    s = format (s, " gw %U", format_ip46_address, &t->tunnel_gw);
   else
-    s = format (s, "gw <none>");
+    s = format (s, " gw <none>");
 #endif
 
   return s;

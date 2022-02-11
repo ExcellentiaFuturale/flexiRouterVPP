@@ -15,8 +15,10 @@
 
 /*
  *  Copyright (C) 2021 flexiWAN Ltd.
- *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - Extended IKEv2 state enum with strings.
+ *   - Enable user to specify gateway that should be used for IKE traffic.
+ *     This is needed for FlexiWAN multi-link policy feature on multi-WAN devices.
  */
 
 #ifndef __included_ikev2_priv_h__
@@ -25,6 +27,9 @@
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
 #include <vnet/ethernet/ethernet.h>
+#ifdef FLEXIWAN_FEATURE
+#include <vnet/fib/fib_path_list.h>
+#endif
 
 #include <plugins/ikev2/ikev2.h>
 
@@ -370,6 +375,21 @@ typedef struct
   u32 lifetime_jitter;
   u32 handover;
   u16 ipsec_over_udp_port;
+#ifdef FLEXIWAN_FEATURE
+  fib_route_path_t gw;  /*The next hope to be used for IKE traffic - takes care of multi-WAN*/
+
+  /* The fields below are needed to monitor adjacency for the GW using FIB.
+   * The 'dpo' points to the needed adjacency, and it is used to enqueue IKEv2
+   * messages into ipv4_rewrite node directly, bypassing the ipv4_lookup node
+   * for the SA remote address.
+  */
+  fib_node_t            fnode;
+  dpo_id_t              dpo;
+  fib_node_index_t      pathlist_index;
+  fib_path_list_flags_t pathlist_flags;
+  fib_route_path_t*     pathlist_rpath;
+  u32                   pathlist_sibling;
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
   u32 tun_itf;
   u8 udp_encap;
@@ -541,6 +561,14 @@ typedef struct
 
   /* dead peer detection */
   u8 dpd_disabled;
+
+#ifdef FLEXIWAN_FEATURE
+  /* Type of FIB node needed for registration of profiles within FIB */
+  fib_node_type_t fib_node_type_ikev2_profile;
+
+  u32 error_drop_node_index;
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
 } ikev2_main_t;
 
 extern ikev2_main_t ikev2_main;

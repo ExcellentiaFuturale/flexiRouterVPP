@@ -480,6 +480,24 @@ autoreply define ikev2_profile_set_ipsec_udp_port
   option status="in_progress";
 };
 
+/** \brief IKEv2: set IP address of next hop to be used for IKE traffic
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param next_hop_ip - the IPv4/IPv6 of the gateway
+    @param next_hop_sw_if_index - the sw_if_index of interface to be used to reach the GW
+    @param name - IKEv2 profile name
+*/
+autoreply define ikev2_profile_set_gateway
+{
+  u32 client_index;
+  u32 context;
+
+  vl_api_address_t next_hop_ip;
+  u32              next_hop_sw_if_index;
+  string name[64];
+  option status="in_progress";
+};
+
 /** \brief IKEv2: Set liveness parameters
     @param client_index - opaque cookie to identify the sender
     @param context - sender context, to match reply w/ request
