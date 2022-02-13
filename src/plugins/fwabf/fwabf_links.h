@@ -29,7 +29,7 @@
  * Actually Link is a structure that extends the VPP software interface object.
  * It just keeps all FlexiWAN related logic separated of core VPP code.
  *
- * The main API function of this file is fwabf_links_get_dpo().
+ * The main API function of this file is fwabf_links_get_intersected_dpo().
  * Once the FWABF Link database is filled with interfaces, labels, etc,
  * this API can be used to retrieve DPO object by FWABF label.
  * This DPO object then is used for forwarding packet to the labeled tunnel/WAN
@@ -138,7 +138,7 @@ extern dpo_id_t fwabf_links_get_quality_dpo (
  * @param proto     IPv4/IPv6
  * @return DPO to be used for forwarding or DPO_INVALID if intersection failed.
  */
-extern dpo_id_t fwabf_links_get_dpo (
+extern dpo_id_t fwabf_links_get_intersected_dpo (
                         fwabf_label_t         fwlabel,
                         const load_balance_t* lb,
                         dpo_proto_t           proto);

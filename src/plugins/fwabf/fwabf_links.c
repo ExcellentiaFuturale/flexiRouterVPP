@@ -142,9 +142,11 @@ static u32* adj_indexes_to_reachable_links = NULL;   // DPO-s of Links that are 
  * Default route handling.
  * The default route adjacencies are used as follows:
  * if packet matches policy and FIB lookup brings default route adjacency,
- * the packet will be forwarded on the labeled tunnel with no regards to routing
- * tables. This is to enable user to enforce public internet traffic, e.g. Facebook,
- * to go through the tunnel if user configured such policy.
+ * and user configured policy to ingore existing route, the packet
+ * will be forwarded on the labeled tunnel with no regards to routing tables.
+ * This is to enable user to enforce internet designated traffic, e.g. Facebook,
+ * to go through the tunnel. We call this use case Branch-to-HQ topology.
+ * The Branch machine pushes all traffic into tunnel to the Head Quaters machine.
  * If FIB lookup doesn't bring default route, the traffic is not designated for
  * open internet probably, so final tunnel to be used is found by intersection
  * of FIB lookup result and labeled tunnels.
@@ -584,7 +586,7 @@ dpo_id_t fwabf_links_get_quality_dpo (
   return invalid_dpo;
 }
 
-dpo_id_t fwabf_links_get_dpo (
+dpo_id_t fwabf_links_get_intersected_dpo (
                         fwabf_label_t         fwlabel,
                         const load_balance_t* lb,
                         dpo_proto_t           proto)
