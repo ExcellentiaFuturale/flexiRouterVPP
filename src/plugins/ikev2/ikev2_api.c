@@ -17,6 +17,13 @@
  *------------------------------------------------------------------
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - Enable user to specify gateway that should be used for IKE traffic.
+ *     This is needed for FlexiWAN multi-link policy feature on multi-WAN devices.
+ */
+
 #include <vnet/vnet.h>
 #include <vlibmemory/api.h>
 #include <vnet/api_errno.h>
@@ -165,6 +172,11 @@ send_profile (ikev2_profile_t * profile, vl_api_registration_t * reg,
   rmp->profile.tun_itf = profile->tun_itf;
   rmp->profile.natt_disabled = profile->natt_disabled;
   rmp->profile.ipsec_over_udp_port = profile->ipsec_over_udp_port;
+#ifdef FLEXIWAN_FEATURE
+  ip46_type_t type = (profile->gw.frp_proto==DPO_PROTO_IP4) ? IP46_TYPE_IP4 : IP46_TYPE_IP6;
+  ip_address_encode (&profile->gw.frp_addr, type, &rmp->profile.next_hop_ip);
+  rmp->profile.next_hop_sw_if_index = ntohl (profile->gw.frp_sw_if_index);
+#endif
 
   rmp->profile.lifetime = profile->lifetime;
   rmp->profile.lifetime_maxdata = profile->lifetime_maxdata;
@@ -808,6 +820,33 @@ static void
 
   REPLY_MACRO (VL_API_IKEV2_PROFILE_SET_IPSEC_UDP_PORT_REPLY);
 }
+
+#ifdef FLEXIWAN_FEATURE
+static void
+  vl_api_ikev2_profile_set_gateway_t_handler
+  (vl_api_ikev2_profile_set_gateway_t * mp)
+{
+  vl_api_ikev2_profile_set_gateway_reply_t *rmp;
+  int rv;
+  fib_route_path_t gw;
+  ip46_type_t ip_type;
+  vlib_main_t *vm = vlib_get_main();
+  u8 *profile_name;
+
+  clib_memset(&gw, 0, sizeof(gw));
+  gw.frp_weight = 1;
+
+  profile_name = format (0, "%s", mp->name);
+  ip_type = ip_address_decode(&mp->next_hop_ip, &gw.frp_addr);
+  gw.frp_sw_if_index = ntohl (mp->next_hop_sw_if_index),
+  gw.frp_proto = (ip_type == IP46_TYPE_IP6) ? DPO_PROTO_IP6 : DPO_PROTO_IP4,
+
+  rv = ikev2_set_profile_gateway (vm, profile_name, &gw);
+  vec_free (profile_name);
+
+  REPLY_MACRO (VL_API_IKEV2_PROFILE_SET_GATEWAY_REPLY);
+}
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 static void
   vl_api_ikev2_set_tunnel_interface_t_handler

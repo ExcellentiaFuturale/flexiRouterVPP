@@ -15,8 +15,11 @@
 
 /*
  *  Copyright (C) 2021 flexiWAN Ltd.
- *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - Print IKEv2 connection state in show command.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - Enable user to specify gateway that should be used for IKE traffic.
+ *     This is needed for FlexiWAN multi-link policy feature on multi-WAN devices.
  */
 
 #include <vlib/vlib.h>
@@ -325,6 +328,9 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
   ikev2_transform_encr_type_t crypto_alg;
   ikev2_transform_integ_type_t integ_alg;
   ikev2_transform_dh_type_t dh_type;
+#ifdef FLEXIWAN_FEATURE
+  fib_route_path_t gw;
+#endif
 
   if (!unformat_user (input, unformat_line_input, line_input))
     return 0;
@@ -535,6 +541,16 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
 	    r = clib_error_return (0, "Error: %U", format_vnet_api_errno, rv);
 	  goto done;
 	}
+#ifdef FLEXIWAN_FEATURE
+      else if (unformat (line_input, "set %U gw via %U",
+			 unformat_ikev2_token, &name, unformat_fib_route_path, &gw))
+	{
+	  int rv = ikev2_set_profile_gateway (vm, name, &gw);
+	  if (rv)
+	    r = clib_error_return (0, "Error: %U", format_vnet_api_errno, rv);
+	  goto done;
+	}
+#endif
       else if (unformat (line_input, "set %U disable natt",
 			 unformat_ikev2_token, &name))
 	{
@@ -637,6 +653,16 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
 
     if (p->ipsec_over_udp_port != IPSEC_UDP_PORT_NONE)
       vlib_cli_output(vm, "  ipsec-over-udp port %d", p->ipsec_over_udp_port);
+
+#ifdef FLEXIWAN_FEATURE
+    ip_address_t gw;
+    ip_address_from_46 (&p->gw.frp_addr, (fib_protocol_t)p->gw.frp_proto, &gw);
+    if (!(ip_address_is_zero(&gw)))
+      vlib_cli_output(vm, "  gw via %U, pl-index %d, adj-index %d", 
+                        format_fib_route_path, &p->gw, p->pathlist_index, p->dpo.dpoi_index);
+    else
+      vlib_cli_output(vm, "  gw <none>");
+#endif
 
     if (p->ike_ts.crypto_alg || p->ike_ts.integ_alg || p->ike_ts.dh_type || p->ike_ts.crypto_key_size)
       vlib_cli_output(vm, "  ike-crypto-alg %U %u ike-integ-alg %U ike-dh %U",
