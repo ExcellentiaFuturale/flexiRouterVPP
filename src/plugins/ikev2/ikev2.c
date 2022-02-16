@@ -4262,6 +4262,7 @@ vnet_api_error_t
 ikev2_set_profile_gateway (vlib_main_t * vm, u8 * name, fib_route_path_t * gw)
 {
   ikev2_profile_t *p = ikev2_profile_index_by_name (name);
+  ikev2_main_t   *km = &ikev2_main;
   u32 profile_index = p - km->profiles;
 
   if (!p)
