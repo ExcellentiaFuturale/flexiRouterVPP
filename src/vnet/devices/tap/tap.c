@@ -15,6 +15,14 @@
  *------------------------------------------------------------------
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Exported TUN device hardware class to be used in tap-inject plugin.
+ *     As a result of tap-inject changes CLI command 'create tap host-if-name pppoe-0 tun'
+ *     results in tun0 VPP interface and pppoe-0 and tun0 Linux TUN interfaces.
+ */
+
 #define _GNU_SOURCE
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -59,7 +67,11 @@ tap_main_t tap_main;
     }
 
   /* *INDENT-OFF* */
+#ifdef FLEXIWAN_FEATURE
+VNET_HW_INTERFACE_CLASS (tun_device_hw_interface_class) =
+#else
 VNET_HW_INTERFACE_CLASS (tun_device_hw_interface_class, static) =
+#endif /* FLEXIWAN_FEATURE */
 {
   .name = "tun-device",
   .flags = VNET_HW_INTERFACE_CLASS_FLAG_P2P,
