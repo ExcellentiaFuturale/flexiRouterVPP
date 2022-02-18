@@ -629,6 +629,16 @@ extern uword unformat_fib_route_path(unformat_input_t * input, va_list * args);
  */
 extern u8 * format_fib_route_path(u8 *s, va_list *ap);
 
+#ifdef FLEXIWAN_FEATURE
+/**
+ * Common function to format gateway related info:
+ *  - format_fib_route_path
+ *  - format_fib_path_list
+ *  - format_dpo_id
+ */
+extern u8 * format_fib_gateway(u8 *s, va_list *ap);
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
 /**
  * A help string to list the FIB path options
  */

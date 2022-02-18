@@ -4262,6 +4262,7 @@ vnet_api_error_t
 ikev2_set_profile_gateway (vlib_main_t * vm, u8 * name, fib_route_path_t * gw)
 {
   ikev2_profile_t *p = ikev2_profile_index_by_name (name);
+  ikev2_main_t   *km = &ikev2_main;
   u32 profile_index = p - km->profiles;
 
   if (!p)
@@ -4455,6 +4456,9 @@ ikev2_get_profile_gateway_adj (vlib_main_t * vm, u32 p_index, u32 * adj_index)
 {
   ikev2_main_t* km = &ikev2_main;
   ikev2_profile_t* p;
+
+  if (PREDICT_FALSE(p_index == ~0))
+    return 0;
 
   p = pool_elt_at_index (km->profiles, p_index);
   if (PREDICT_FALSE(!p))

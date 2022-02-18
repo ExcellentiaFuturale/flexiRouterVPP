@@ -654,16 +654,6 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
     if (p->ipsec_over_udp_port != IPSEC_UDP_PORT_NONE)
       vlib_cli_output(vm, "  ipsec-over-udp port %d", p->ipsec_over_udp_port);
 
-#ifdef FLEXIWAN_FEATURE
-    ip_address_t gw;
-    ip_address_from_46 (&p->gw.frp_addr, (fib_protocol_t)p->gw.frp_proto, &gw);
-    if (!(ip_address_is_zero(&gw)))
-      vlib_cli_output(vm, "  gw via %U, pl-index %d, adj-index %d", 
-                        format_fib_route_path, &p->gw, p->pathlist_index, p->dpo.dpoi_index);
-    else
-      vlib_cli_output(vm, "  gw <none>");
-#endif
-
     if (p->ike_ts.crypto_alg || p->ike_ts.integ_alg || p->ike_ts.dh_type || p->ike_ts.crypto_key_size)
       vlib_cli_output(vm, "  ike-crypto-alg %U %u ike-integ-alg %U ike-dh %U",
                     format_ikev2_transform_encr_type, p->ike_ts.crypto_alg, p->ike_ts.crypto_key_size,
@@ -677,6 +667,10 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
 
     vlib_cli_output(vm, "  lifetime %d jitter %d handover %d maxdata %d",
                     p->lifetime, p->lifetime_jitter, p->handover, p->lifetime_maxdata);
+
+#ifdef FLEXIWAN_FEATURE
+    vlib_cli_output(vm, "%U", format_fib_gateway, "  ", &p->gw, p->pathlist_index, &p->dpo);
+#endif
   }
   /* *INDENT-ON* */
 
