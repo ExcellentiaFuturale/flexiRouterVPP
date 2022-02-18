@@ -21,6 +21,10 @@
 #include <vnet/mfib/mfib_types.h>
 #include <vnet/mpls/mpls.h>
 
+#ifdef FLEXIWAN_FEATURE
+#include <vnet/fib/fib_path_list.h>
+#endif
+
 /*
  * arrays of protocol and link names
  */
@@ -153,6 +157,37 @@ format_fib_route_path (u8 *s, va_list *ap)
 
     return (s);
 }
+
+#ifdef FLEXIWAN_FEATURE
+/**
+ * Common function to format gateway related info:
+ *  - format_fib_route_path
+ *  - format_fib_path_list
+ *  - format_dpo_id
+ */
+u8 * format_fib_gateway(u8 *s, va_list *ap)
+{
+    u8 *               prefix   = va_arg (*ap, u8*);
+    fib_route_path_t * rpath    = va_arg (*ap, fib_route_path_t*);
+    u32                pl_index = va_arg (*ap, u32);
+    dpo_id_t *         dpo      = va_arg (*ap, dpo_id_t *);
+
+    if (pl_index != INDEX_INVALID)
+    {
+        s = format (s, "%sgw %U, path-list-index %d, adj-index %d\n",
+                prefix, format_fib_route_path, rpath, pl_index, dpo->dpoi_index);
+        s = format (s, "%s%U\n",
+                prefix, format_fib_path_list, pl_index, 4);
+    }
+    else
+    {
+        s = format (s, "%sgw <none>\n", prefix);
+    }
+
+    return s;
+}
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
 
 void
 fib_prefix_from_mpls_label (mpls_label_t label,

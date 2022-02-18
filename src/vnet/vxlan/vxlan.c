@@ -100,11 +100,7 @@ format_vxlan_tunnel (u8 * s, va_list * args)
 		format_flow_enabled_hw, t->flow_index);
 
 #ifdef FLEXIWAN_FEATURE
-  if (t->fib_pl_index != INDEX_INVALID)
-  {
-    s = format (s, "next hope: pathlist-index %d", t->fib_pl_index);
-    s = format (s, "%U", format_fib_path_list, t->fib_pl_index, 4);
-  }
+  s = format(s, "%U", format_fib_gateway, "", &t->rpath, t->fib_pl_index, &t->next_dpo);
 #endif /* FLEXIWAN_FEATURE */
 
   return s;
