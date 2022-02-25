@@ -817,15 +817,12 @@ fwabf_policy_cmd (vlib_main_t * vm, unformat_input_t * main_input, vlib_cli_comm
 {
   unformat_input_t _line_input, *line_input = &_line_input;
   fwabf_policy_action_t policy_action;
-  u32                   acl_index;
-  u32                   policy_id;
-  u32                   is_del;
-  u8                    override_default_route;
+  u32                   acl_index = INDEX_INVALID;
+  u32                   policy_id = INDEX_INVALID;
+  u32                   is_del    = 0;
+  u8                    override_default_route = 0;
   u32                   ret;
 
-  is_del    = 0;
-  acl_index = INDEX_INVALID;
-  policy_id = INDEX_INVALID;
   memset(&policy_action, 0, sizeof(policy_action));
 
   /* Get a line of input. */
