@@ -15,6 +15,18 @@
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - snat_port_refcount_fix: Port refcount array was wrongly sized as (65K -1)
  *
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - session_recovery_on_nat_addr_flap : Prevent flushing of NAT sessions on
+ *     NAT address flap. If same address gets added back, it shall ensure
+ *     continuity of NAT sessions. On NAT interface address delete, the feature
+ *     marks the flow as stale and activates it back if the same NAT address is
+ *     added back on the interface. Feature is supported in
+ *     nat44-ed-output-feature mode and can be enabled on a per interface basis
+ *     via API/CLI
+ *
+ *   - nat_interface_specific_address_selection : Feature to select NAT address
+ *     based on the output interface assigned to the packet. This ensures using
+ *     respective interface address for NAT (Provides multiwan-dia support)
  */
 /**
  * @file nat.c
@@ -151,6 +163,17 @@ typedef enum
 #undef _
 } snat_session_state_t;
 
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+#define foreach_nat_in2out_ed_error                     \
+_(UNSUPPORTED_PROTOCOL, "unsupported protocol")         \
+_(OUT_OF_PORTS, "out of ports")                         \
+_(BAD_ICMP_TYPE, "unsupported ICMP type")               \
+_(MAX_SESSIONS_EXCEEDED, "maximum sessions exceeded")   \
+_(NON_SYN, "non-SYN packet try to create session")      \
+_(TCP_CLOSED, "drops due to TCP in transitory timeout") \
+_(STALE_SESSION, "drops due to session in stale state")
+#else
 #define foreach_nat_in2out_ed_error                     \
 _(UNSUPPORTED_PROTOCOL, "unsupported protocol")         \
 _(OUT_OF_PORTS, "out of ports")                         \
@@ -158,6 +181,7 @@ _(BAD_ICMP_TYPE, "unsupported ICMP type")               \
 _(MAX_SESSIONS_EXCEEDED, "maximum sessions exceeded")   \
 _(NON_SYN, "non-SYN packet try to create session")      \
 _(TCP_CLOSED, "drops due to TCP in transitory timeout")
+#endif
 
 typedef enum
 {
@@ -180,6 +204,20 @@ typedef enum
     NAT44_HANDOFF_N_ERROR,
 } nat44_handoff_error_t;
 
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+#define foreach_nat_out2in_ed_error                     \
+_(UNSUPPORTED_PROTOCOL, "unsupported protocol")         \
+_(OUT_OF_PORTS, "out of ports")                         \
+_(BAD_ICMP_TYPE, "unsupported ICMP type")               \
+_(NO_TRANSLATION, "no translation")                     \
+_(MAX_SESSIONS_EXCEEDED, "maximum sessions exceeded")   \
+_(MAX_USER_SESS_EXCEEDED, "max user sessions exceeded") \
+_(CANNOT_CREATE_USER, "cannot create NAT user")         \
+_(NON_SYN, "non-SYN packet try to create session")      \
+_(TCP_CLOSED, "drops due to TCP in transitory timeout") \
+_(STALE_SESSION, "drops due to session in stale state")
+#else
 #define foreach_nat_out2in_ed_error                     \
 _(UNSUPPORTED_PROTOCOL, "unsupported protocol")         \
 _(OUT_OF_PORTS, "out of ports")                         \
@@ -190,6 +228,7 @@ _(MAX_USER_SESS_EXCEEDED, "max user sessions exceeded") \
 _(CANNOT_CREATE_USER, "cannot create NAT user")         \
 _(NON_SYN, "non-SYN packet try to create session")      \
 _(TCP_CLOSED, "drops due to TCP in transitory timeout")
+#endif
 
 typedef enum
 {
@@ -218,10 +257,18 @@ typedef enum
 #define SNAT_SESSION_FLAG_FWD_BYPASS           32
 #define SNAT_SESSION_FLAG_AFFINITY             64
 #define SNAT_SESSION_FLAG_EXACT_ADDRESS        128
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+#define SNAT_SESSION_FLAG_STALE_NAT_ADDR       256
+#endif
 
 /* NAT interface flags */
 #define NAT_INTERFACE_FLAG_IS_INSIDE 1
 #define NAT_INTERFACE_FLAG_IS_OUTSIDE 2
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+#define NAT_INTERFACE_FLAG_IS_SESSION_RECOVERY 4
+#endif
 
 /* Static mapping flags */
 #define NAT_STATIC_MAPPING_FLAG_ADDR_ONLY      1
@@ -841,6 +888,16 @@ unformat_function_t unformat_nat_protocol;
 */
 #define is_exact_address_session(s) (s->flags & SNAT_SESSION_FLAG_EXACT_ADDRESS)
 
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+/** \brief Check if session is marked for stale NAT address
+    @param s SNAT session
+    @return 1 if stale NAT address or 0
+*/
+#define is_stale_recovery_session(s) \
+  (s->flags & SNAT_SESSION_FLAG_STALE_NAT_ADDR)
+#endif
+
 /** \brief Check if NAT interface is inside.
     @param i NAT interface
     @return 1 if inside interface
@@ -852,6 +909,16 @@ unformat_function_t unformat_nat_protocol;
     @return 1 if outside interface
 */
 #define nat_interface_is_outside(i) i->flags & NAT_INTERFACE_FLAG_IS_OUTSIDE
+
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+/** \brief Check if NAT interface has session recovery flag turned on
+    @param i NAT interface
+    @return 1 if session recovery flag is turned on
+*/
+#define nat_interface_is_session_recovery(i) \
+  (i->flags & NAT_INTERFACE_FLAG_IS_SESSION_RECOVERY)
+#endif
 
 /** \brief Check if NAT44 endpoint-dependent TCP session is closed.
     @param s NAT session
@@ -1174,7 +1241,11 @@ int nat44_plugin_enable (nat44_config_t c);
  */
 int nat44_plugin_disable ();
 
-#ifdef FLEXIWAN
+#ifdef FLEXIWAN_FEATURE
+/*
+ * Feature name: nat_interface_specific_address_selection,
+ *		 session_recovery_on_nat_addr_flap
+ */
 /**
  * @brief Add external address to NAT44 pool
  *
@@ -1188,6 +1259,20 @@ int nat44_plugin_disable ();
  */
 int snat_add_address (snat_main_t * sm, u32 tx_sw_if_index,
 		      ip4_address_t * addr, u32 vrf_id, u8 twice_nat);
+
+/**
+ * @brief Delete external address from NAT44 pool
+ *
+ * @param sm	      snat global configuration data
+ * @param sw_if_index Index of the interface that the address is attached
+ * @param addr	      IPv4 address
+ * @param delete_sm   1 if delete static mapping using address
+ * @param twice_nat   1 if twice NAT address
+ *
+ * @return 0 on success, non-zero value otherwise
+ */
+int snat_del_address (snat_main_t * sm, u32 sw_if_index, ip4_address_t addr,
+                      u8 delete_sm, u8 twice_nat);
 #else
 /**
  * @brief Add external address to NAT44 pool
@@ -1202,8 +1287,6 @@ int snat_add_address (snat_main_t * sm, u32 tx_sw_if_index,
 int snat_add_address (snat_main_t * sm, ip4_address_t * addr, u32 vrf_id,
 		     u8 twice_nat);
 
-#endif
-
 /**
  * @brief Delete external address from NAT44 pool
  *
@@ -1216,6 +1299,7 @@ int snat_add_address (snat_main_t * sm, ip4_address_t * addr, u32 vrf_id,
  */
 int snat_del_address (snat_main_t * sm, ip4_address_t addr, u8 delete_sm,
 		      u8 twice_nat);
+#endif
 
 /**
  * @brief Add/delete external address to FIB DPO (out2in DPO mode)
@@ -1304,17 +1388,34 @@ int snat_set_workers (uword * bitmap);
  */
 int snat_interface_add_del (u32 sw_if_index, u8 is_inside, int is_del);
 
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+/**
+ * @brief Enable/disable NAT44 output feature on the interface (postrouting NAT)
+ *
+ * @param sw_if_index 		software index of the interface
+ * @param is_inside             1 = inside,  0 = outside
+ * @param is_session_recovery   1 = enabled, 0 = disabled
+ * @param is_del                1 = delete,  0 = add
+ *
+ * @return 0 on success, non-zero value otherwise
+ */
+int snat_interface_add_del_output_feature (u32 sw_if_index, u8 is_inside,
+                                           u8 is_session_recovery,
+					   int is_del);
+#else
 /**
  * @brief Enable/disable NAT44 output feature on the interface (postrouting NAT)
  *
  * @param sw_if_index software index of the interface
- * @param is_inside   1 = inside, 0 = outside
- * @param is_del      1 = delete, 0 = add
+ * @param is_inside             1 = inside,  0 = outside
+ * @param is_del                1 = delete,  0 = add
  *
  * @return 0 on success, non-zero value otherwise
  */
 int snat_interface_add_del_output_feature (u32 sw_if_index, u8 is_inside,
 					   int is_del);
+#endif
 
 /**
  * @brief Add/delete NAT44 pool address from specific interface

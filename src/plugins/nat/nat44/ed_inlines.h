@@ -15,6 +15,17 @@
  * limitations under the License.
  */
 
+/*
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - session_recovery_on_nat_addr_flap : Prevent flushing of NAT sessions on
+ *     NAT address flap. If same address gets added back, it shall ensure
+ *     continuity of NAT sessions. On NAT interface address delete, the feature
+ *     marks the flow as stale and activates it back if the same NAT address is
+ *     added back on the interface. Feature is supported in
+ *     nat44-ed-output-feature mode and can be enabled on a per interface basis
+ *     via API/CLI
+ */
+
 #ifndef __included_ed_inlines_h__
 #define __included_ed_inlines_h__
 
@@ -251,5 +262,71 @@ per_vrf_sessions_is_expired (snat_session_t * s, u32 thread_index)
                                        s->per_vrf_sessions_index);
   return per_vrf_sessions->expired;
 }
+
+#ifdef FLEXIWAN_FEATURE
+/* Feature name : session_recovery_on_nat_addr_flap */
+/*
+ * Makes below checks to decide if session is recoverable.
+ * - Is session_recovery enabled on the interface
+ * - Is the same NAT address back on the interface
+ * If recoverable, unsets STALE_NAT_ADDR flag and increments port refcount
+ * states as required
+ */
+static_always_inline i32
+nat44_ed_recover_session (snat_session_t *s, u32 sw_if_index, u32 thread_index,
+			  ip4_address_t *addr, u16 port_host_byte_order)
+{
+  snat_main_t *sm = &snat_main;
+  snat_interface_t *i;
+  snat_address_t *ap;
+  i32 recover = 0, is_session_recovery = 0;
+
+  pool_foreach (i, sm->output_feature_interfaces)
+   {
+     if ((i->sw_if_index == sw_if_index) &&
+	 nat_interface_is_session_recovery(i))
+       {
+	 is_session_recovery = 1;
+       }
+   }
+  if (is_session_recovery)
+    {
+      vec_foreach (ap, sm->addresses)
+	{
+	  if ((ap->addr.as_u32 == addr->as_u32) &&
+	      (ap->tx_sw_if_index == sw_if_index))
+	    {
+	      recover = 1;
+	      break;
+	    }
+	}
+    }
+
+  if (recover)
+    {
+      switch (s->nat_proto)
+	{
+#define _(N, j, n, s) \
+	  case NAT_PROTOCOL_##N: \
+	    ++ap->busy_##n##_port_refcounts[port_host_byte_order]; \
+	    ap->busy_##n##_ports_per_thread[thread_index]++; \
+	    ap->busy_##n##_ports++; \
+	  break;
+	  foreach_nat_protocol
+
+	  default:
+	    nat_elog_info ("unknown protocol");
+            return VNET_API_ERROR_INVALID_VALUE;
+#undef _
+	}
+      s->flags &= ~SNAT_SESSION_FLAG_STALE_NAT_ADDR;
+    }
+  else
+    {
+      return VNET_API_ERROR_INVALID_VALUE;
+    }
+  return 0;
+}
+#endif
 
 #endif

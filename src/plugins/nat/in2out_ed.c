@@ -25,6 +25,14 @@
  *     for them. That improves performance on multi-core machines,
  *     as NAT session are bound to the specific worker thread / core.
  *
+ *   - session-recovery-on-nat-addr-flap : Prevent flushing of NAT sessions on
+ *     NAT address flap. If same address gets added back, it shall ensure
+ *     continuity of NAT sessions. On NAT interface address delete, the feature
+ *     marks the flow as stale and activates it back if the same NAT address is
+ *     added back on the interface. Feature is supported in
+ *     nat44-ed-output-feature mode and can be enabled on a per interface basis
+ *     via API/CLI
+ *
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - identity_nat_tcp_out2in: Fix to make out2in identity NAT TCP flows work
  */
@@ -1121,6 +1129,23 @@ nat44_ed_in2out_fast_path_node_fn_inline (vlib_main_t * vm,
 	pool_elt_at_index (tsm->sessions,
 			   ed_value_get_session_index (&value0));
 
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: session-recovery-on-nat-addr-flap */
+      if (PREDICT_FALSE (s0->flags & SNAT_SESSION_FLAG_STALE_NAT_ADDR))
+	{
+	  if (nat44_ed_recover_session
+	      (s0, vnet_buffer (b0)->sw_if_index[VLIB_TX], thread_index,
+	       &s0->out2in.addr, clib_net_to_host_u16(s0->out2in.port)) != 0)
+	    {
+              /*
+	       * Session not recoverable from stale state.
+	       * Probably NAT interface IP changed or still not up yet
+	       */
+	      b0->error = node->errors[NAT_IN2OUT_ED_ERROR_STALE_SESSION];
+	      next[0] = NAT_NEXT_DROP;
+	    }
+	}
+#endif
       if (PREDICT_FALSE (per_vrf_sessions_is_expired (s0, thread_index)))
 	{
 	  // session is closed, go slow path
@@ -1159,6 +1184,18 @@ nat44_ed_in2out_fast_path_node_fn_inline (vlib_main_t * vm,
 	  goto trace0;
 	}
 
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: session-recovery-on-nat-addr-flap */
+      if (PREDICT_FALSE (next[0] == NAT_NEXT_DROP))
+	{
+	  /*
+	   * The session marked with SNAT_SESSION_FLAG_STALE_NAT_ADDR is not
+	   * recoverable and has crossed session timeout cleanup checks. Proceed to
+	   * drop the packet
+	   */
+	  goto trace0;
+	}
+#endif
       b0->flags |= VNET_BUFFER_F_IS_NATED;
 
       if (!is_output_feature)

@@ -12,6 +12,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - session_recovery_on_nat_addr_flap : Prevent flushing of NAT sessions on
+ *     NAT address flap. If same address gets added back, it shall ensure
+ *     continuity of NAT sessions. On NAT interface address delete, the feature
+ *     marks the flow as stale and activates it back if the same NAT address is
+ *     added back on the interface. Feature is supported in
+ *     nat44-ed-output-feature mode and can be enabled on a per interface basis
+ *     via API/CLI
+ */
 /**
  * @file
  * @brief NAT formatting
@@ -170,6 +181,11 @@ format_snat_session (u8 * s, va_list * args)
     s = format (s, "       load-balancing\n");
   if (is_twice_nat_session (sess))
     s = format (s, "       twice-nat\n");
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  if (is_stale_recovery_session (sess))
+    s = format (s, "       stale-nat-addr\n");
+#endif
 
   return s;
 }

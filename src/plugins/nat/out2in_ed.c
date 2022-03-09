@@ -25,6 +25,13 @@
  *     for them. That improves performance on multi-core machines,
  *     as NAT session are bound to the specific worker thread / core.
  *
+ *   - session_recovery_on_nat_addr_flap : Prevent flushing of NAT sessions on
+ *     NAT address flap. If same address gets added back, it shall ensure
+ *     continuity of NAT sessions. On NAT interface address delete, the feature
+ *     marks the flow as stale and activates it back if the same NAT address is
+ *     added back on the interface. Feature is supported in
+ *     nat44-ed-output-feature mode and can be enabled on a per interface basis
+ *     via API/CLI
  *
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - snat_port_refcount_fix : Port reference count was wrongly
@@ -944,8 +951,14 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 	       && s0->nat_proto == ip_proto_to_nat_proto (ip0->protocol)
 	       && s0->out2in.fib_index == rx_fib_index0
 	       && s0->ext_host_addr.as_u32 == ip0->src_address.as_u32
+#ifdef FLEXIWAN_FEATURE
+	       /* Feature name : session_recovery_on_nat_addr_flap */
+	       && s0->ext_host_port == vnet_buffer (b0)->ip.reass.l4_src_port
+	       && (s0->flags && SNAT_SESSION_FLAG_STALE_NAT_ADDR) == 0))
+#else
 	       && s0->ext_host_port ==
 	       vnet_buffer (b0)->ip.reass.l4_src_port))
+#endif
 	    {
 	      /* yes, this is the droid we're looking for */
 	      goto skip_lookup;
@@ -963,6 +976,23 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
       s0 =
 	pool_elt_at_index (tsm->sessions,
 			   ed_value_get_session_index (&value0));
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name : session_recovery_on_nat_addr_flap */
+      if (PREDICT_FALSE (s0->flags & SNAT_SESSION_FLAG_STALE_NAT_ADDR))
+	{
+	  if (nat44_ed_recover_session
+	      (s0, vnet_buffer (b0)->sw_if_index[VLIB_RX], thread_index,
+	       &s0->out2in.addr, clib_net_to_host_u16(s0->out2in.port)) != 0)
+	    {
+              /*
+	       * Session not recoverable from stale state.
+	       * Probably NAT interface IP changed or still not up yet
+	       */
+	      b0->error = node->errors[NAT_OUT2IN_ED_ERROR_STALE_SESSION];
+	      next[0] = NAT_NEXT_DROP;
+	    }
+	}
+#endif
 
     skip_lookup:
 
@@ -1003,6 +1033,18 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 	  next[0] = NAT_NEXT_OUT2IN_ED_SLOW_PATH;
 	  goto trace0;
 	}
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name : session_recovery_on_nat_addr_flap */
+      if (PREDICT_FALSE (next[0] == NAT_NEXT_DROP))
+	{
+	  /*
+	   * The session marked with SNAT_SESSION_FLAG_STALE_NAT_ADDR is not
+	   * recoverable and has crossed session timeout cleanup checks. Proceed to
+	   * drop the packet
+	   */
+	  goto trace0;
+	}
+#endif
 
       old_addr0 = ip0->dst_address.as_u32;
       new_addr0 = ip0->dst_address.as_u32 = s0->in2out.addr.as_u32;
