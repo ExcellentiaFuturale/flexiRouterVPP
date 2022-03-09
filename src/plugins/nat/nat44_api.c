@@ -13,6 +13,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - session_recovery_on_nat_addr_flap : Prevent flushing of NAT sessions on
+ *     NAT address flap. If same address gets added back, it shall ensure
+ *     continuity of NAT sessions. On NAT interface address delete, the feature
+ *     marks the flow as stale and activates it back if the same NAT address is
+ *     added back on the interface. Feature is supported in
+ *     nat44-ed-output-feature mode and can be enabled on a per interface basis
+ *     via API/CLI
+ *
+ *   - nat_interface_specific_address_selection : Feature to select NAT address
+ *     based on the output interface assigned to the packet. This ensures using
+ *     respective interface address for NAT (Provides multiwan-dia support)
+ */
 /**
  * @file
  * @brief NAT44 plugin API implementation
@@ -605,14 +620,26 @@ static void
 
   for (i = 0; i < count; i++)
     {
+#ifdef FLEXIWAN_FEATURE
+      /*
+       * Feature name:	session_recovery_on_nat_addr_flap,
+       *		nat_interface_specific_address_selection
+       */
+      /*
+       * Both session_recovery and interface specific NAT address selection
+       * feature is currently supported only in nat44 interface_address mode
+       * and not in address range mode
+       */
       if (is_add)
-#ifdef FLEXIWAN
 	rv = snat_add_address (sm, ~0, &this_addr, vrf_id, twice_nat);
+      else
+	rv = snat_del_address (sm, ~0, this_addr, 0, twice_nat);
 #else
+      if (is_add)
 	rv = snat_add_address (sm, &this_addr, vrf_id, twice_nat);
-#endif
       else
 	rv = snat_del_address (sm, this_addr, 0, twice_nat);
+#endif
 
       if (rv)
 	goto send_reply;
@@ -747,9 +774,28 @@ static void
 
   VALIDATE_SW_IF_INDEX (mp);
 
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  if (mp->is_session_recovery)
+    {
+      if ((!sm->endpoint_dependent) || (mp->flags & NAT_API_IS_INSIDE))
+        {
+          clib_warning (0, "session recovery currently supported only in \
+                        nat44-ed-output_feature");
+          rv = VNET_API_ERROR_UNSUPPORTED;
+        }
+    }
+  if (!rv)
+    {
+      rv = snat_interface_add_del_output_feature
+	(sw_if_index, mp->flags & NAT_API_IS_INSIDE, mp->is_session_recovery,
+	 !mp->is_add);
+    }
+#else
   rv = snat_interface_add_del_output_feature (sw_if_index,
 					      mp->flags & NAT_API_IS_INSIDE,
 					      !mp->is_add);
+#endif
 
   BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_NAT44_INTERFACE_ADD_DEL_OUTPUT_FEATURE_REPLY);

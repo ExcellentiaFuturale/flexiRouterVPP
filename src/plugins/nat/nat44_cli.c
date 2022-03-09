@@ -17,6 +17,21 @@
  *   - snat_port_refcount_fix : Print ports in use and refcount in verbose mode
  *
  */
+
+/*
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - session_recovery_on_nat_addr_flap : Prevent flushing of NAT sessions on
+ *     NAT address flap. If same address gets added back, it shall ensure
+ *     continuity of NAT sessions. On NAT interface address delete, the feature
+ *     marks the flow as stale and activates it back if the same NAT address is
+ *     added back on the interface. Feature is supported in
+ *     nat44-ed-output-feature mode and can be enabled on a per interface basis
+ *     via API/CLI
+ *
+ *   - nat_interface_specific_address_selection : Feature to select NAT address
+ *     based on the output interface assigned to the packet. This ensures using
+ *     respective interface address for NAT (Provides multiwan-dia support)
+ */
 /**
  * @file
  * @brief NAT44 CLI
@@ -672,14 +687,26 @@ add_address_command_fn (vlib_main_t * vm,
 
   for (i = 0; i < count; i++)
     {
+#ifdef FLEXIWAN_FEATURE
+      /*
+       * Feature name:	session_recovery_on_nat_addr_flap,
+       *		nat_interface_specific_address_selection
+       */
+      /*
+       * Both session_recovery and interface specific NAT address selection
+       * feature is currently supported only in nat44 interface_address mode
+       * and not in address range mode
+       */
       if (is_add)
-#ifdef FLEXIWAN
 	rv = snat_add_address (sm, ~0, &this_addr, vrf_id, twice_nat);
-#else
-	rv = snat_add_address (sm, &this_addr, vrf_id, twice_nat);
-#endif
       else
-	rv = snat_del_address (sm, this_addr, 0, twice_nat);
+	rv = snat_del_address (sm, ~0, this_addr, 1, twice_nat);
+#else
+      if (is_add)
+	rv = snat_add_address (sm, &this_addr, vrf_id, twice_nat);
+      else
+	rv = snat_del_address (sm, this_addr, 1, twice_nat);
+#endif
 
       switch (rv)
 	{
@@ -972,6 +999,11 @@ snat_feature_command_fn (vlib_main_t * vm,
   u8 is_output_feature = 0;
   int is_del = 0;
   int i;
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  snat_main_t *sm = &snat_main;
+  u8 is_session_recovery = 0;
+#endif
 
   sw_if_index = ~0;
 
@@ -989,6 +1021,11 @@ snat_feature_command_fn (vlib_main_t * vm,
 	vec_add1 (outside_sw_if_indices, sw_if_index);
       else if (unformat (line_input, "output-feature"))
 	is_output_feature = 1;
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: session_recovery_on_nat_addr_flap */
+      else if (unformat (line_input, "session-recovery"))
+	is_session_recovery = 1;
+#endif
       else if (unformat (line_input, "del"))
 	is_del = 1;
       else
@@ -998,6 +1035,18 @@ snat_feature_command_fn (vlib_main_t * vm,
 	  goto done;
 	}
     }
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  if (is_session_recovery)
+    {
+      if ((!sm->endpoint_dependent) || (!is_output_feature))
+        {
+          error = clib_error_return (0, "session recovery currently supported \
+                                     only in nat44-ed-output_feature");
+	  goto done;
+        }
+    }
+#endif
 
   if (vec_len (inside_sw_if_indices))
     {
@@ -1006,8 +1055,14 @@ snat_feature_command_fn (vlib_main_t * vm,
 	  sw_if_index = inside_sw_if_indices[i];
 	  if (is_output_feature)
 	    {
+#ifdef FLEXIWAN_FEATURE
+	      /* Feature name: session_recovery_on_nat_addr_flap */
+	      if (snat_interface_add_del_output_feature
+		  (sw_if_index, 1, is_session_recovery, is_del))
+#else
 	      if (snat_interface_add_del_output_feature
 		  (sw_if_index, 1, is_del))
+#endif
 		{
 		  error = clib_error_return (0, "%s %U failed",
 					     is_del ? "del" : "add",
@@ -1037,8 +1092,14 @@ snat_feature_command_fn (vlib_main_t * vm,
 	  sw_if_index = outside_sw_if_indices[i];
 	  if (is_output_feature)
 	    {
+#ifdef FLEXIWAN_FEATURE
+	      /* Feature name: session_recovery_on_nat_addr_flap */
+	      if (snat_interface_add_del_output_feature
+		  (sw_if_index, 0, is_session_recovery, is_del))
+#else
 	      if (snat_interface_add_del_output_feature
 		  (sw_if_index, 0, is_del))
+#endif
 		{
 		  error = clib_error_return (0, "%s %U failed",
 					     is_del ? "del" : "add",
@@ -1090,12 +1151,24 @@ nat44_show_interfaces_command_fn (vlib_main_t * vm, unformat_input_t * input,
 
   pool_foreach (i, sm->output_feature_interfaces)
    {
+#ifdef FLEXIWAN_FEATURE
+    /* Feature name: session_recovery_on_nat_addr_flap */
+    vlib_cli_output (vm, " %U output-feature %s %s",
+                     format_vnet_sw_if_index_name, vnm,
+                     i->sw_if_index,
+                     (nat_interface_is_inside(i) &&
+                      nat_interface_is_outside(i)) ? "in out" :
+                     (nat_interface_is_inside(i) ? "in" : "out"),
+                     (nat_interface_is_session_recovery(i) ?
+		     "session-recovery-on" : ""));
+#else
     vlib_cli_output (vm, " %U output-feature %s",
                      format_vnet_sw_if_index_name, vnm,
                      i->sw_if_index,
                      (nat_interface_is_inside(i) &&
                       nat_interface_is_outside(i)) ? "in out" :
                      (nat_interface_is_inside(i) ? "in" : "out"));
+#endif
   }
   /* *INDENT-ON* */
 
@@ -2351,6 +2424,10 @@ VLIB_CLI_COMMAND (set_interface_snat_command, static) = {
   .path = "set interface nat44",
   .function = snat_feature_command_fn,
   .short_help = "set interface nat44 in <intfc> out <intfc> [output-feature] "
+#ifdef FLEXIWAN_FEATURE
+                /* Feature name : session_recovery_on_nat_addr_flap */
+                "[session-recovery] "
+#endif
                 "[del]",
 };
 

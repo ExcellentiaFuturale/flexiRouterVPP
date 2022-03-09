@@ -44,6 +44,18 @@
  *     where the counters reside.
  *     This corruption might cause the statistics collecting node/thread to hang
  *     or even to crash (see FLEXIWAN assertion in the internal_mallinfo() function).
+ *
+ *   - session_recovery_on_nat_addr_flap : Prevent flushing of NAT sessions on
+ *     NAT address flap. If same address gets added back, it shall ensure
+ *     continuity of NAT sessions. On NAT interface address delete, the feature
+ *     marks the flow as stale and activates it back if the same NAT address is
+ *     added back on the interface. Feature is supported in
+ *     nat44-ed-output-feature mode and can be enabled on a per interface basis
+ *     via API/CLI
+ *
+ *   - nat_interface_specific_address_selection : Feature to select NAT address
+ *     based on the output interface assigned to the packet. This ensures using
+ *     respective interface address for NAT (Provides multiwan-dia support)
  */
 
 #include <vnet/vnet.h>
@@ -536,9 +548,24 @@ nat_free_session_data (snat_main_t * sm, snat_session_t * s, u32 thread_index,
   if (snat_is_session_static (s))
     return;
 
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  if ((s->flags & SNAT_SESSION_FLAG_STALE_NAT_ADDR) == 0)
+    {
+      /*
+       * Sessions marked with STALE_NAT_ADDR will increment port refcounts only
+       * when moved out of STALE_NAT_ADDR state. So not required to free
+       * port refcounts for sessions currently in STALE_NAT_ADDR state.
+       */
+      snat_free_outside_address_and_port (sm->addresses, thread_index,
+					  &s->out2in.addr, s->out2in.port,
+					  s->nat_proto);
+    }
+#else
   snat_free_outside_address_and_port (sm->addresses, thread_index,
 				      &s->out2in.addr, s->out2in.port,
 				      s->nat_proto);
+#endif
 }
 
 snat_user_t *
@@ -707,10 +734,11 @@ snat_add_del_addr_to_fib (ip4_address_t * addr, u8 p_len, u32 sw_if_index,
     fib_table_entry_delete (fib_index, &prefix, sm->fib_src_low);
 }
 
-#ifdef FLEXIWAN
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: nat_interface_specific_address_selection */
 int
-snat_add_address (snat_main_t * sm, u32 tx_sw_if_index, ip4_address_t * addr, u32 vrf_id,
-		  u8 twice_nat)
+snat_add_address (snat_main_t * sm, u32 tx_sw_if_index, ip4_address_t * addr,
+		  u32 vrf_id, u8 twice_nat)
 #else
 int
 snat_add_address (snat_main_t * sm, ip4_address_t * addr, u32 vrf_id,
@@ -745,7 +773,8 @@ snat_add_address (snat_main_t * sm, ip4_address_t * addr, u32 vrf_id,
     vec_add2 (sm->addresses, ap, 1);
 
   ap->addr = *addr;
-#ifdef FLEXIWAN
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: nat_interface_specific_address_selection */
   ap->tx_sw_if_index = tx_sw_if_index;
 #endif
   if (vrf_id != ~0)
@@ -1824,9 +1853,16 @@ nat44_lb_static_mapping_add_del_local (ip4_address_t e_addr, u16 e_port,
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+int
+snat_del_address (snat_main_t * sm, u32 sw_if_index, ip4_address_t addr,
+		  u8 delete_sm, u8 twice_nat)
+#else /* FLEXIWAN_FEATURE */
 int
 snat_del_address (snat_main_t * sm, ip4_address_t addr, u8 delete_sm,
 		  u8 twice_nat)
+#endif
 {
   snat_address_t *a = 0;
   snat_session_t *ses;
@@ -1837,11 +1873,36 @@ snat_del_address (snat_main_t * sm, ip4_address_t addr, u8 delete_sm,
   int i;
   snat_address_t *addresses =
     twice_nat ? sm->twice_nat_addresses : sm->addresses;
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  u8 is_session_recovery = 0;
+
+  /* Check if the interface has session recovery feature turned on */
+  if (sw_if_index != ~0)
+    {
+      pool_foreach (interface, sm->output_feature_interfaces)
+	{
+	  if ((sw_if_index == interface->sw_if_index) &&
+	      (nat_interface_is_session_recovery(interface)))
+	    {
+	      is_session_recovery = 1;
+	      break;
+	    }
+	}
+    }
+#endif
 
   /* Find SNAT address */
   for (i = 0; i < vec_len (addresses); i++)
     {
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: session_recovery_on_nat_addr_flap */
+      if ((addresses[i].addr.as_u32 == addr.as_u32) &&
+	  ((!is_session_recovery) ||
+	   (addresses[i].tx_sw_if_index == sw_if_index)))
+#else /* FLEXIWAN_FEATURE */
       if (addresses[i].addr.as_u32 == addr.as_u32)
+#endif
 	{
 	  a = addresses + i;
 	  break;
@@ -1895,8 +1956,28 @@ snat_del_address (snat_main_t * sm, ip4_address_t addr, u8 delete_sm,
         pool_foreach (ses, tsm->sessions)  {
           if (ses->out2in.addr.as_u32 == addr.as_u32)
             {
-              nat_free_session_data (sm, ses, tsm - sm->per_thread_data, 0);
-              vec_add1 (ses_to_be_removed, ses - tsm->sessions);
+#ifdef FLEXIWAN_FEATURE
+	      /* Feature name: session_recovery_on_nat_addr_flap */
+	      if ((is_session_recovery) &&
+		  ((ses->nat_proto == NAT_PROTOCOL_TCP) ||
+		   (ses->nat_proto == NAT_PROTOCOL_UDP)))
+		{
+		  /*
+		   * If session_recovery feature is enabled, mark the session
+		   * with STALE_NAT_ADDR flag. And not delete the session from
+		   * table
+		   */
+		  ses->flags |= SNAT_SESSION_FLAG_STALE_NAT_ADDR;
+		}
+	      else
+		{
+		  nat_free_session_data (sm, ses, tsm - sm->per_thread_data, 0);
+		  vec_add1 (ses_to_be_removed, ses - tsm->sessions);
+		}
+#else
+	      nat_free_session_data (sm, ses, tsm - sm->per_thread_data, 0);
+	      vec_add1 (ses_to_be_removed, ses - tsm->sessions);
+#endif
             }
         }
         /* *INDENT-ON* */
@@ -2318,9 +2399,16 @@ fib:
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
 int
-snat_interface_add_del_output_feature (u32 sw_if_index,
-				       u8 is_inside, int is_del)
+snat_interface_add_del_output_feature (u32 sw_if_index, u8 is_inside,
+				       u8 is_session_recovery, int is_del)
+#else
+int
+snat_interface_add_del_output_feature (u32 sw_if_index, u8 is_inside,
+		                       int is_del)
+#endif
 {
   snat_main_t *sm = &snat_main;
   snat_interface_t *i;
@@ -2512,6 +2600,14 @@ fq:
   else
     i->flags |= NAT_INTERFACE_FLAG_IS_OUTSIDE;
 
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  if (is_session_recovery)
+    {
+      /* Mark the interface as session_recovery enabled */
+      i->flags |= NAT_INTERFACE_FLAG_IS_SESSION_RECOVERY;
+    }
+#endif
   /* Add/delete external addresses to FIB */
 fib:
   if (is_inside)
@@ -3148,10 +3244,26 @@ nat44_plugin_disable ()
   /* *INDENT-OFF* */
   vec_foreach (i, vec)
     {
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: session_recovery_on_nat_addr_flap */
+      /* Pass parameter informing if session_recovery is enabled on interface*/
+      if (nat_interface_is_inside(i))
+	{
+	  error = snat_interface_add_del_output_feature
+	    (i->sw_if_index, 1, nat_interface_is_session_recovery(i), 1);
+	}
+
+      if (nat_interface_is_outside(i))
+	{
+	  error = snat_interface_add_del_output_feature
+	    (i->sw_if_index, 0, nat_interface_is_session_recovery(i), 1);
+	}
+#else
       if (nat_interface_is_inside(i))
         error = snat_interface_add_del_output_feature (i->sw_if_index, 1, 1);
       if (nat_interface_is_outside(i))
         error = snat_interface_add_del_output_feature (i->sw_if_index, 0, 1);
+#endif
 
       if (error)
         {
@@ -4646,7 +4758,8 @@ match:
 	if (addresses[j].addr.as_u32 == address->as_u32)
 	  return;
 
-#ifdef FLEXIWAN
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: nat_interface_specific_address_selection */
       (void) snat_add_address (sm, sw_if_index, address, ~0, twice_nat);
 #else
       (void) snat_add_address (sm, address, ~0, twice_nat);
@@ -4687,7 +4800,12 @@ match:
     }
   else
     {
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: session_recovery_on_nat_addr_flap */
+      (void) snat_del_address (sm, sw_if_index, address[0], 1, twice_nat);
+#else
       (void) snat_del_address (sm, address[0], 1, twice_nat);
+#endif
       return;
     }
 }
@@ -4716,7 +4834,13 @@ snat_add_interface_address (snat_main_t * sm, u32 sw_if_index, int is_del,
 	    {
 	      /* if have address remove it */
 	      if (first_int_addr)
+#ifdef FLEXIWAN_FEATURE
+		/* Feature name: session_recovery_on_nat_addr_flap */
+		(void) snat_del_address (sm, sw_if_index, first_int_addr[0], 1,
+					 twice_nat);
+#else
 		(void) snat_del_address (sm, first_int_addr[0], 1, twice_nat);
+#endif
 	      else
 		{
 		  for (j = 0; j < vec_len (sm->to_resolve); j++)
@@ -4755,7 +4879,8 @@ snat_add_interface_address (snat_main_t * sm, u32 sw_if_index, int is_del,
 
   /* If the address is already bound - or static - add it now */
   if (first_int_addr)
-#ifdef FLEXIWAN
+#ifdef FLEXIWAN_FEATURE
+    /* Feature name: nat_interface_specific_address_selection */
     (void) snat_add_address (sm, sw_if_index, first_int_addr, ~0, twice_nat);
 #else
     (void) snat_add_address (sm, first_int_addr, ~0, twice_nat);
