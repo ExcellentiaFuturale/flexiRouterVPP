@@ -265,10 +265,6 @@ typedef enum
 /* NAT interface flags */
 #define NAT_INTERFACE_FLAG_IS_INSIDE 1
 #define NAT_INTERFACE_FLAG_IS_OUTSIDE 2
-#ifdef FLEXIWAN_FEATURE
-/* Feature name: session_recovery_on_nat_addr_flap */
-#define NAT_INTERFACE_FLAG_IS_SESSION_RECOVERY 4
-#endif
 
 /* Static mapping flags */
 #define NAT_STATIC_MAPPING_FLAG_ADDR_ONLY      1
@@ -631,6 +627,11 @@ typedef struct snat_main_s
   /* sw_if_indices whose intfc addresses should be auto-added */
   u32 *auto_add_sw_if_indices;
   u32 *auto_add_sw_if_indices_twice_nat;
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  /* Vector indexed by sw_if_index: 0/1 indicates session_recovery is off/on */
+  u32 *auto_add_sw_if_indices_session_recovery;
+#endif
 
   /* vector of interface address static mappings to resolve. */
   snat_static_map_resolve_t *to_resolve;
@@ -910,16 +911,6 @@ unformat_function_t unformat_nat_protocol;
 */
 #define nat_interface_is_outside(i) i->flags & NAT_INTERFACE_FLAG_IS_OUTSIDE
 
-#ifdef FLEXIWAN_FEATURE
-/* Feature name: session_recovery_on_nat_addr_flap */
-/** \brief Check if NAT interface has session recovery flag turned on
-    @param i NAT interface
-    @return 1 if session recovery flag is turned on
-*/
-#define nat_interface_is_session_recovery(i) \
-  (i->flags & NAT_INTERFACE_FLAG_IS_SESSION_RECOVERY)
-#endif
-
 /** \brief Check if NAT44 endpoint-dependent TCP session is closed.
     @param s NAT session
     @return 1 if session is closed
@@ -955,6 +946,22 @@ unformat_function_t unformat_nat_protocol;
     @return 1 if exact pool address or 0
 */
 #define is_exact_address(s) (s->flags & NAT_STATIC_MAPPING_FLAG_EXACT_ADDRESS)
+
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+/** \brief Check if sw_if_index has session recovery set
+    @param sw_if_index
+    @return 1 if interface has session recovery set
+*/
+always_inline bool
+nat44_interface_is_session_recovery (u32 sw_if_index)
+{
+  snat_main_t *sm = &snat_main;
+  vec_validate_init_empty (sm->auto_add_sw_if_indices_session_recovery,
+                           sw_if_index, 0);
+  return sm->auto_add_sw_if_indices_session_recovery[sw_if_index];
+}
+#endif
 
 /** \brief Check if client initiating TCP connection (received SYN from client)
     @param t TCP header
@@ -1329,6 +1336,9 @@ void nat44_add_del_address_dpo (ip4_address_t addr, u8 is_add);
  * @param identity_nat identity NAT
  * @param pool_addr    pool IPv4 address
  * @param exact        1 = exact pool address
+ * #ifdef FLEXIWAN_FEATURE
+ * @param is_session_recovery 1 = if session recovery on addr flap enabled
+ * #endif FLEXIWAN_FEATURE
  *
  * @return 0 on success, non-zero value otherwise
  */
@@ -1336,6 +1346,9 @@ int snat_add_static_mapping (ip4_address_t l_addr, ip4_address_t e_addr,
 			     u16 l_port, u16 e_port, u32 vrf_id,
 			     int addr_only, u32 sw_if_index,
 			     nat_protocol_t proto, int is_add,
+#ifdef FLEXIWAN_FEATURE
+			     u8 is_session_recovery,
+#endif
 			     twice_nat_type_t twice_nat, u8 out2in_only,
 			     u8 * tag, u8 identity_nat,
 			     ip4_address_t pool_addr, int exact);
@@ -1388,45 +1401,39 @@ int snat_set_workers (uword * bitmap);
  */
 int snat_interface_add_del (u32 sw_if_index, u8 is_inside, int is_del);
 
-#ifdef FLEXIWAN_FEATURE
-/* Feature name: session_recovery_on_nat_addr_flap */
-/**
- * @brief Enable/disable NAT44 output feature on the interface (postrouting NAT)
- *
- * @param sw_if_index 		software index of the interface
- * @param is_inside             1 = inside,  0 = outside
- * @param is_session_recovery   1 = enabled, 0 = disabled
- * @param is_del                1 = delete,  0 = add
- *
- * @return 0 on success, non-zero value otherwise
- */
-int snat_interface_add_del_output_feature (u32 sw_if_index, u8 is_inside,
-                                           u8 is_session_recovery,
-					   int is_del);
-#else
 /**
  * @brief Enable/disable NAT44 output feature on the interface (postrouting NAT)
  *
  * @param sw_if_index software index of the interface
- * @param is_inside             1 = inside,  0 = outside
- * @param is_del                1 = delete,  0 = add
+ * @param is_inside   1 = inside,  0 = outside
+ * @param is_del      1 = delete,  0 = add
  *
  * @return 0 on success, non-zero value otherwise
  */
 int snat_interface_add_del_output_feature (u32 sw_if_index, u8 is_inside,
 					   int is_del);
-#endif
 
 /**
  * @brief Add/delete NAT44 pool address from specific interface
  *
  * @param sw_if_index software index of the interface
  * @param is_del      1 = delete, 0 = add
+ * #ifdef FLEXIWAN_FEATURE
+ * @param is_session_recovery  1 = enabled, 0 = disabled
+ * #endif FLEXIWAN_FEATURE
  * @param twice_nat   1 = twice NAT address for external hosts
  *
  * @return 0 on success, non-zero value otherwise
  */
+
 int snat_add_interface_address (snat_main_t * sm, u32 sw_if_index, int is_del,
+#ifdef FLEXIWAN_FEATURE
+/*
+ * Feature name: nat_interface_specific_address_selection,
+ *		 session_recovery_on_nat_addr_flap
+ */
+				int is_session_recovery,
+#endif
 				u8 twice_nat);
 
 /**

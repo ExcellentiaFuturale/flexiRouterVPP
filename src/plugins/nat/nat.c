@@ -946,6 +946,10 @@ nat_ed_static_mapping_del_sessions (snat_main_t * sm,
 				    u16 l_port,
 				    u8 protocol,
 				    u32 fib_index, int addr_only,
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+				    u8 is_session_recovery,
+#endif
 				    ip4_address_t e_addr, u16 e_port)
 {
   snat_session_t *s;
@@ -970,8 +974,25 @@ nat_ed_static_mapping_del_sessions (snat_main_t * sm,
       continue;
     if (!snat_is_session_static (s))
       continue;
+#ifdef FLEXIWAN_FEATURE
+    /* Feature name: session_recovery_on_nat_addr_flap */
+    if (is_session_recovery)
+      {
+	/*
+	 * If session_recovery feature is enabled, mark the session with
+	 * STALE_NAT_ADDR flag. And not delete the session from table
+	 */
+	s->flags |= SNAT_SESSION_FLAG_STALE_NAT_ADDR;
+      }
+    else
+      {
+	nat_free_session_data (sm, s, tsm - sm->per_thread_data, 0);
+	vec_add1 (indexes_to_free, s - tsm->sessions);
+      }
+#else
     nat_free_session_data (sm, s, tsm - sm->per_thread_data, 0);
     vec_add1 (indexes_to_free, s - tsm->sessions);
+#endif
     if (!addr_only)
       break;
   }
@@ -989,6 +1010,10 @@ int
 snat_add_static_mapping (ip4_address_t l_addr, ip4_address_t e_addr,
 			 u16 l_port, u16 e_port, u32 vrf_id, int addr_only,
 			 u32 sw_if_index, nat_protocol_t proto, int is_add,
+#ifdef FLEXIWAN_FEATURE
+			 /* Feature name: session_recovery_on_nat_addr_flap */
+			 u8 is_session_recovery,
+#endif
 			 twice_nat_type_t twice_nat, u8 out2in_only, u8 * tag,
 			 u8 identity_nat, ip4_address_t pool_addr, int exact)
 {
@@ -1417,6 +1442,17 @@ snat_add_static_mapping (ip4_address_t l_addr, ip4_address_t e_addr,
 	      nat_ed_static_mapping_del_sessions (sm, tsm, m->local_addr,
 						  m->local_port, m->proto,
 						  fib_index, addr_only,
+#ifdef FLEXIWAN_FEATURE
+	      /* Feature name: session_recovery_on_nat_addr_flap */
+	      /* 
+	       * is_session_recovery = 1 will be true only in below call trace
+	       * 0. IP address delete - NETLINK message triggers [1]
+	       * 1. snat_ip4_add_del_interface_address_cb ==> calls [2]
+	       * 2. snat_del_address ==> calls [3]
+	       * 3. snat_add_static_mapping
+	       */
+						  is_session_recovery,
+#endif
 						  e_addr, e_port);
 	    }
 	  else
@@ -1880,15 +1916,8 @@ snat_del_address (snat_main_t * sm, ip4_address_t addr, u8 delete_sm,
   /* Check if the interface has session recovery feature turned on */
   if (sw_if_index != ~0)
     {
-      pool_foreach (interface, sm->output_feature_interfaces)
-	{
-	  if ((sw_if_index == interface->sw_if_index) &&
-	      (nat_interface_is_session_recovery(interface)))
-	    {
-	      is_session_recovery = 1;
-	      break;
-	    }
-	}
+      /* sw_if_index shall be passed as != ~0 only from addr_delete callback */
+      is_session_recovery = nat44_interface_is_session_recovery (sw_if_index);
     }
 #endif
 
@@ -1926,6 +1955,10 @@ snat_del_address (snat_main_t * sm, ip4_address_t addr, u8 delete_sm,
                                             m->vrf_id,
                                             is_addr_only_static_mapping(m), ~0,
                                             m->proto, 0 /* is_add */,
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+					    is_session_recovery,
+#endif
                                             m->twice_nat,
                                             is_out2in_only_static_mapping(m),
                                             m->tag,
@@ -2399,16 +2432,9 @@ fib:
   return 0;
 }
 
-#ifdef FLEXIWAN_FEATURE
-/* Feature name: session_recovery_on_nat_addr_flap */
-int
-snat_interface_add_del_output_feature (u32 sw_if_index, u8 is_inside,
-				       u8 is_session_recovery, int is_del)
-#else
 int
 snat_interface_add_del_output_feature (u32 sw_if_index, u8 is_inside,
 		                       int is_del)
-#endif
 {
   snat_main_t *sm = &snat_main;
   snat_interface_t *i;
@@ -2600,14 +2626,6 @@ fq:
   else
     i->flags |= NAT_INTERFACE_FLAG_IS_OUTSIDE;
 
-#ifdef FLEXIWAN_FEATURE
-  /* Feature name: session_recovery_on_nat_addr_flap */
-  if (is_session_recovery)
-    {
-      /* Mark the interface as session_recovery enabled */
-      i->flags |= NAT_INTERFACE_FLAG_IS_SESSION_RECOVERY;
-    }
-#endif
   /* Add/delete external addresses to FIB */
 fib:
   if (is_inside)
@@ -3244,26 +3262,10 @@ nat44_plugin_disable ()
   /* *INDENT-OFF* */
   vec_foreach (i, vec)
     {
-#ifdef FLEXIWAN_FEATURE
-      /* Feature name: session_recovery_on_nat_addr_flap */
-      /* Pass parameter informing if session_recovery is enabled on interface*/
-      if (nat_interface_is_inside(i))
-	{
-	  error = snat_interface_add_del_output_feature
-	    (i->sw_if_index, 1, nat_interface_is_session_recovery(i), 1);
-	}
-
-      if (nat_interface_is_outside(i))
-	{
-	  error = snat_interface_add_del_output_feature
-	    (i->sw_if_index, 0, nat_interface_is_session_recovery(i), 1);
-	}
-#else
       if (nat_interface_is_inside(i))
         error = snat_interface_add_del_output_feature (i->sw_if_index, 1, 1);
       if (nat_interface_is_outside(i))
         error = snat_interface_add_del_output_feature (i->sw_if_index, 0, 1);
-#endif
 
       if (error)
         {
@@ -3307,10 +3309,18 @@ nat44_plugin_disable ()
   vec_free (sm->to_resolve);
   vec_free (sm->auto_add_sw_if_indices);
   vec_free (sm->auto_add_sw_if_indices_twice_nat);
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  vec_free (sm->auto_add_sw_if_indices_session_recovery);
+#endif
 
   sm->to_resolve = 0;
   sm->auto_add_sw_if_indices = 0;
   sm->auto_add_sw_if_indices_twice_nat = 0;
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  sm->auto_add_sw_if_indices_session_recovery = 0;
+#endif
 
   sm->forwarding_enabled = 0;
 
@@ -4708,7 +4718,12 @@ match:
 				rp->e_port,
 				rp->vrf_id,
 				rp->addr_only, ~0 /* sw_if_index */ ,
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+				rp->proto, !is_delete, 0, rp->twice_nat,
+#else
 				rp->proto, !is_delete, rp->twice_nat,
+#endif
 				rp->out2in_only, rp->tag, rp->identity_nat,
 				rp->pool_addr, rp->exact);
   if (rv)
@@ -4787,7 +4802,12 @@ match:
 					    rp->addr_only,
 					    ~0 /* sw_if_index */ ,
 					    rp->proto,
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+					    rp->is_add, 0, rp->twice_nat,
+#else
 					    rp->is_add, rp->twice_nat,
+#endif
 					    rp->out2in_only, rp->tag,
 					    rp->identity_nat,
 					    rp->pool_addr, rp->exact);
@@ -4812,6 +4832,10 @@ match:
 
 int
 snat_add_interface_address (snat_main_t * sm, u32 sw_if_index, int is_del,
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: session_recovery_on_nat_addr_flap */
+			    int is_session_recovery,
+#endif
 			    u8 twice_nat)
 {
   ip4_main_t *ip4_main = sm->ip4_main;
@@ -4836,7 +4860,7 @@ snat_add_interface_address (snat_main_t * sm, u32 sw_if_index, int is_del,
 	      if (first_int_addr)
 #ifdef FLEXIWAN_FEATURE
 		/* Feature name: session_recovery_on_nat_addr_flap */
-		(void) snat_del_address (sm, sw_if_index, first_int_addr[0], 1,
+		(void) snat_del_address (sm, ~0, first_int_addr[0], 1,
 					 twice_nat);
 #else
 		(void) snat_del_address (sm, first_int_addr[0], 1, twice_nat);
@@ -4860,6 +4884,11 @@ snat_add_interface_address (snat_main_t * sm, u32 sw_if_index, int is_del,
 		vec_del1 (sm->auto_add_sw_if_indices_twice_nat, i);
 	      else
 		vec_del1 (sm->auto_add_sw_if_indices, i);
+#ifdef FLEXIWAN_FEATURE
+	      /* Feature name: session_recovery_on_nat_addr_flap */
+	      /* Unset session_recovery on the interface */
+	      sm->auto_add_sw_if_indices_session_recovery[sw_if_index] = 0;
+#endif
 	    }
 	  else
 	    return VNET_API_ERROR_VALUE_EXIST;
@@ -4876,6 +4905,15 @@ snat_add_interface_address (snat_main_t * sm, u32 sw_if_index, int is_del,
     vec_add1 (sm->auto_add_sw_if_indices_twice_nat, sw_if_index);
   else
     vec_add1 (sm->auto_add_sw_if_indices, sw_if_index);
+
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  /* Assign session_recovery value on the interface */
+  vec_validate_init_empty (sm->auto_add_sw_if_indices_session_recovery,
+		  sw_if_index, 0);
+  sm->auto_add_sw_if_indices_session_recovery[sw_if_index] =
+    is_session_recovery;
+#endif
 
   /* If the address is already bound - or static - add it now */
   if (first_int_addr)

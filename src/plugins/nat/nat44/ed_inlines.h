@@ -277,18 +277,13 @@ nat44_ed_recover_session (snat_session_t *s, u32 sw_if_index, u32 thread_index,
 			  ip4_address_t *addr, u16 port_host_byte_order)
 {
   snat_main_t *sm = &snat_main;
-  snat_interface_t *i;
   snat_address_t *ap;
   i32 recover = 0, is_session_recovery = 0;
 
-  pool_foreach (i, sm->output_feature_interfaces)
-   {
-     if ((i->sw_if_index == sw_if_index) &&
-	 nat_interface_is_session_recovery(i))
-       {
-	 is_session_recovery = 1;
-       }
-   }
+  if (sw_if_index != ~0)
+    {
+      is_session_recovery = nat44_interface_is_session_recovery (sw_if_index);
+    }
   if (is_session_recovery)
     {
       vec_foreach (ap, sm->addresses)
