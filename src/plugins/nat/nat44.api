@@ -700,9 +700,6 @@ define nat44_interface_details {
     @param client_index - opaque cookie to identify the sender
     @param context - sender context, to match reply w/ request
     @param is_add - true if add, false if delete
-    // #ifdef FLEXIWAN_FEATURE - session_recovery_on_nat_addr_flap
-    @param is_session_recovery - true if enabled, false if disabled
-    // #endif FLEXIWAN_FEATURE
     @param flags - flag NAT_IS_INSIDE if interface is inside else
                    interface is outside
     @param sw_if_index - software index of the interface
@@ -711,9 +708,6 @@ autoreply define nat44_interface_add_del_output_feature {
   u32 client_index;
   u32 context;
   bool is_add;
-  /* #ifdef FLEXIWAN_FEATURE - session_recovery_on_nat_addr_flap */
-  bool is_session_recovery;
-  /* #endif FLEXIWAN_FEATURE */
   vl_api_nat_config_flags_t flags;
   vl_api_interface_index_t sw_if_index;
 };
@@ -915,6 +909,9 @@ define nat44_identity_mapping_details {
     @param client_index - opaque cookie to identify the sender
     @param context - sender context, to match reply w/ request
     @param is_add - true if add, false if delete
+    // #ifdef FLEXIWAN_FEATURE - session_recovery_on_nat_addr_flap
+    @param is_session_recovery - true if enabled, false if disabled
+    // #endif FLEXIWAN_FEATURE
     @param sw_if_index - software index of the interface
     @param flags - flag NAT_TWICE_NAT if NAT address range for external hosts
 */
@@ -922,6 +919,9 @@ autoreply define nat44_add_del_interface_addr {
   u32 client_index;
   u32 context;
   bool is_add;
+  /* #ifdef FLEXIWAN_FEATURE - session_recovery_on_nat_addr_flap */
+  bool is_session_recovery;
+  /* #endif FLEXIWAN_FEATURE */
   vl_api_interface_index_t sw_if_index;
   vl_api_nat_config_flags_t flags;
 };

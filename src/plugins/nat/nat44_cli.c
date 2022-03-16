@@ -999,11 +999,6 @@ snat_feature_command_fn (vlib_main_t * vm,
   u8 is_output_feature = 0;
   int is_del = 0;
   int i;
-#ifdef FLEXIWAN_FEATURE
-  /* Feature name: session_recovery_on_nat_addr_flap */
-  snat_main_t *sm = &snat_main;
-  u8 is_session_recovery = 0;
-#endif
 
   sw_if_index = ~0;
 
@@ -1021,11 +1016,6 @@ snat_feature_command_fn (vlib_main_t * vm,
 	vec_add1 (outside_sw_if_indices, sw_if_index);
       else if (unformat (line_input, "output-feature"))
 	is_output_feature = 1;
-#ifdef FLEXIWAN_FEATURE
-      /* Feature name: session_recovery_on_nat_addr_flap */
-      else if (unformat (line_input, "session-recovery"))
-	is_session_recovery = 1;
-#endif
       else if (unformat (line_input, "del"))
 	is_del = 1;
       else
@@ -1035,18 +1025,6 @@ snat_feature_command_fn (vlib_main_t * vm,
 	  goto done;
 	}
     }
-#ifdef FLEXIWAN_FEATURE
-  /* Feature name: session_recovery_on_nat_addr_flap */
-  if (is_session_recovery)
-    {
-      if ((!sm->endpoint_dependent) || (!is_output_feature))
-        {
-          error = clib_error_return (0, "session recovery currently supported \
-                                     only in nat44-ed-output_feature");
-	  goto done;
-        }
-    }
-#endif
 
   if (vec_len (inside_sw_if_indices))
     {
@@ -1055,14 +1033,8 @@ snat_feature_command_fn (vlib_main_t * vm,
 	  sw_if_index = inside_sw_if_indices[i];
 	  if (is_output_feature)
 	    {
-#ifdef FLEXIWAN_FEATURE
-	      /* Feature name: session_recovery_on_nat_addr_flap */
-	      if (snat_interface_add_del_output_feature
-		  (sw_if_index, 1, is_session_recovery, is_del))
-#else
 	      if (snat_interface_add_del_output_feature
 		  (sw_if_index, 1, is_del))
-#endif
 		{
 		  error = clib_error_return (0, "%s %U failed",
 					     is_del ? "del" : "add",
@@ -1092,14 +1064,8 @@ snat_feature_command_fn (vlib_main_t * vm,
 	  sw_if_index = outside_sw_if_indices[i];
 	  if (is_output_feature)
 	    {
-#ifdef FLEXIWAN_FEATURE
-	      /* Feature name: session_recovery_on_nat_addr_flap */
-	      if (snat_interface_add_del_output_feature
-		  (sw_if_index, 0, is_session_recovery, is_del))
-#else
 	      if (snat_interface_add_del_output_feature
 		  (sw_if_index, 0, is_del))
-#endif
 		{
 		  error = clib_error_return (0, "%s %U failed",
 					     is_del ? "del" : "add",
@@ -1142,11 +1108,22 @@ nat44_show_interfaces_command_fn (vlib_main_t * vm, unformat_input_t * input,
   /* *INDENT-OFF* */
   pool_foreach (i, sm->interfaces)
    {
+#ifdef FLEXIWAN_FEATURE
+    /* Feature name: session_recovery_on_nat_addr_flap */
+    vlib_cli_output (vm, " %U %s %s", format_vnet_sw_if_index_name, vnm,
+                     i->sw_if_index,
+                     (nat_interface_is_inside(i) &&
+                      nat_interface_is_outside(i)) ? "in out" :
+                     (nat_interface_is_inside(i) ? "in" : "out"),
+                     (nat44_interface_is_session_recovery(i->sw_if_index) ?
+		     "session-recovery-on" : ""));
+#else
     vlib_cli_output (vm, " %U %s", format_vnet_sw_if_index_name, vnm,
                      i->sw_if_index,
                      (nat_interface_is_inside(i) &&
                       nat_interface_is_outside(i)) ? "in out" :
                      (nat_interface_is_inside(i) ? "in" : "out"));
+#endif
   }
 
   pool_foreach (i, sm->output_feature_interfaces)
@@ -1159,7 +1136,7 @@ nat44_show_interfaces_command_fn (vlib_main_t * vm, unformat_input_t * input,
                      (nat_interface_is_inside(i) &&
                       nat_interface_is_outside(i)) ? "in out" :
                      (nat_interface_is_inside(i) ? "in" : "out"),
-                     (nat_interface_is_session_recovery(i) ?
+                     (nat44_interface_is_session_recovery(i->sw_if_index) ?
 		     "session-recovery-on" : ""));
 #else
     vlib_cli_output (vm, " %U output-feature %s",
@@ -1265,7 +1242,12 @@ add_static_mapping_command_fn (vlib_main_t * vm,
   rv = snat_add_static_mapping (l_addr, e_addr, clib_host_to_net_u16 (l_port),
 				clib_host_to_net_u16 (e_port),
 				vrf_id, addr_only, sw_if_index, proto, is_add,
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+				0, twice_nat, out2in_only, 0, 0, exact_addr,
+#else
 				twice_nat, out2in_only, 0, 0, exact_addr,
+#endif
 				exact);
 
   switch (rv)
@@ -1344,11 +1326,21 @@ add_identity_mapping_command_fn (vlib_main_t * vm,
 	}
     }
 
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  /* extra session_recovery flag after is_add variable */
+  rv =
+    snat_add_static_mapping (addr, addr, clib_host_to_net_u16 (port),
+			     clib_host_to_net_u16 (port), vrf_id, addr_only,
+			     sw_if_index, proto, is_add, 0, 0, 0, 0, 1,
+			     pool_addr, 0);
+#else
   rv =
     snat_add_static_mapping (addr, addr, clib_host_to_net_u16 (port),
 			     clib_host_to_net_u16 (port), vrf_id, addr_only,
 			     sw_if_index, proto, is_add, 0, 0, 0, 1,
 			     pool_addr, 0);
+#endif
 
   switch (rv)
     {
@@ -1609,6 +1601,10 @@ snat_add_interface_address_command_fn (vlib_main_t * vm,
   u32 sw_if_index;
   int rv;
   int is_del = 0;
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  int is_session_recovery = 0;
+#endif
   clib_error_t *error = 0;
   u8 twice_nat = 0;
 
@@ -1621,6 +1617,11 @@ snat_add_interface_address_command_fn (vlib_main_t * vm,
       if (unformat (line_input, "%U", unformat_vnet_sw_interface,
 		    sm->vnet_main, &sw_if_index))
 	;
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: session_recovery_on_nat_addr_flap */
+      else if (unformat (line_input, "session-recovery"))
+	is_session_recovery = 1;
+#endif
       else if (unformat (line_input, "twice-nat"))
 	twice_nat = 1;
       else if (unformat (line_input, "del"))
@@ -1633,7 +1634,14 @@ snat_add_interface_address_command_fn (vlib_main_t * vm,
 	}
     }
 
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  /* Pass value indicating if session_recovery is turned on the interface */
+  rv = snat_add_interface_address (sm, sw_if_index, is_del,
+		                   is_session_recovery, twice_nat);
+#else
   rv = snat_add_interface_address (sm, sw_if_index, is_del, twice_nat);
+#endif
 
   switch (rv)
     {
@@ -2424,10 +2432,6 @@ VLIB_CLI_COMMAND (set_interface_snat_command, static) = {
   .path = "set interface nat44",
   .function = snat_feature_command_fn,
   .short_help = "set interface nat44 in <intfc> out <intfc> [output-feature] "
-#ifdef FLEXIWAN_FEATURE
-                /* Feature name : session_recovery_on_nat_addr_flap */
-                "[session-recovery] "
-#endif
                 "[del]",
 };
 
@@ -2564,7 +2568,13 @@ VLIB_CLI_COMMAND (nat44_show_static_mappings_command, static) = {
 ?*/
 VLIB_CLI_COMMAND (snat_add_interface_address_command, static) = {
     .path = "nat44 add interface address",
+#ifdef FLEXIWAN_FEATURE
+    /* Feature name : session_recovery_on_nat_addr_flap */
+    .short_help = "nat44 add interface address <interface> [twice-nat] "
+                "[session-recovery] [del]",
+#else
     .short_help = "nat44 add interface address <interface> [twice-nat] [del]",
+#endif
     .function = snat_add_interface_address_command_fn,
 };
 

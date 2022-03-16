@@ -774,28 +774,9 @@ static void
 
   VALIDATE_SW_IF_INDEX (mp);
 
-#ifdef FLEXIWAN_FEATURE
-  /* Feature name: session_recovery_on_nat_addr_flap */
-  if (mp->is_session_recovery)
-    {
-      if ((!sm->endpoint_dependent) || (mp->flags & NAT_API_IS_INSIDE))
-        {
-          clib_warning (0, "session recovery currently supported only in \
-                        nat44-ed-output_feature");
-          rv = VNET_API_ERROR_UNSUPPORTED;
-        }
-    }
-  if (!rv)
-    {
-      rv = snat_interface_add_del_output_feature
-	(sw_if_index, mp->flags & NAT_API_IS_INSIDE, mp->is_session_recovery,
-	 !mp->is_add);
-    }
-#else
   rv = snat_interface_add_del_output_feature (sw_if_index,
 					      mp->flags & NAT_API_IS_INSIDE,
 					      !mp->is_add);
-#endif
 
   BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_NAT44_INTERFACE_ADD_DEL_OUTPUT_FEATURE_REPLY);
@@ -881,7 +862,12 @@ static void
 				external_port, vrf_id,
 				mp->flags & NAT_API_IS_ADDR_ONLY,
 				external_sw_if_index, proto,
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+				mp->is_add, 0, twice_nat,
+#else
 				mp->is_add, twice_nat,
+#endif
 				mp->flags & NAT_API_IS_OUT2IN_ONLY, tag, 0,
 				pool_addr, 0);
   vec_free (tag);
@@ -929,7 +915,12 @@ static void
 				external_port, vrf_id,
 				mp->flags & NAT_API_IS_ADDR_ONLY,
 				external_sw_if_index, proto,
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+				mp->is_add, 0, twice_nat,
+#else
 				mp->is_add, twice_nat,
+#endif
 				mp->flags & NAT_API_IS_OUT2IN_ONLY, tag, 0,
 				pool_addr, mp->match_pool);
   vec_free (tag);
@@ -1075,10 +1066,19 @@ static void
   tag = format (0, "%s", mp->tag);
   vec_terminate_c_string (tag);
 
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  /* extra session_recovery flag after is_add variable */
+  rv =
+    snat_add_static_mapping (addr, addr, port, port, vrf_id,
+			     mp->flags & NAT_API_IS_ADDR_ONLY, sw_if_index,
+			     proto, mp->is_add, 0, 0, 0, tag, 1, pool_addr, 0);
+#else
   rv =
     snat_add_static_mapping (addr, addr, port, port, vrf_id,
 			     mp->flags & NAT_API_IS_ADDR_ONLY, sw_if_index,
 			     proto, mp->is_add, 0, 0, tag, 1, pool_addr, 0);
+#endif
   vec_free (tag);
 
   REPLY_MACRO (VL_API_NAT44_ADD_DEL_IDENTITY_MAPPING_REPLY);
@@ -1189,6 +1189,12 @@ static void
   VALIDATE_SW_IF_INDEX (mp);
 
   rv = snat_add_interface_address (sm, sw_if_index, is_del,
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: session_recovery_on_nat_addr_flap */
+  /* Pass value indicating if session_recovery is turned on the interface */
+
+				   mp->is_session_recovery,
+#endif
 				   mp->flags & NAT_API_IS_TWICE_NAT);
 
   BAD_SW_IF_INDEX_LABEL;
