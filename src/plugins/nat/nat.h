@@ -26,7 +26,9 @@
  *
  *   - nat_interface_specific_address_selection : Feature to select NAT address
  *     based on the output interface assigned to the packet. This ensures using
- *     respective interface address for NAT (Provides multiwan-dia support)
+ *     respective interface address for NAT (Provides multiwan-dia support).
+ *     The feature also has support to invalidate the NAT session on
+ *     NAT-interface change due to routing decision changes.
  */
 /**
  * @file nat.c
@@ -334,6 +336,11 @@ typedef CLIB_PACKED(struct
   /* External host address and port */
   ip4_address_t ext_host_addr;
   u16 ext_host_port;
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: nat_interface_specific_address_selection */
+  /* To keep context of the out NAT interface selected during session create */
+  u32 sw_if_index;
+#endif
 
   /* External host address and port after translation */
   ip4_address_t ext_host_nat_addr;

@@ -22,6 +22,11 @@
  *     added back on the interface. Feature is supported in
  *     nat44-ed-output-feature mode and can be enabled on a per interface basis
  *     via API/CLI
+ *   - nat_interface_specific_address_selection : Feature to select NAT address
+ *     based on the output interface assigned to the packet. This ensures using
+ *     respective interface address for NAT (Provides multiwan-dia support).
+ *     The feature also has support to invalidate the NAT session on
+ *     NAT-interface change due to routing decision changes.
  */
 /**
  * @file
@@ -181,6 +186,11 @@ format_snat_session (u8 * s, va_list * args)
     s = format (s, "       load-balancing\n");
   if (is_twice_nat_session (sess))
     s = format (s, "       twice-nat\n");
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: nat_interface_specific_address_selection */
+  if (sess->sw_if_index != ~0)
+    s = format (s, "       sw_if_index: %u\n", sess->sw_if_index);
+#endif
 #ifdef FLEXIWAN_FEATURE
   /* Feature name: session_recovery_on_nat_addr_flap */
   if (is_stale_recovery_session (sess))
