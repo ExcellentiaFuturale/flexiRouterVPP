@@ -24,6 +24,12 @@
  *     added back on the interface. Feature is supported in
  *     nat44-ed-output-feature mode and can be enabled on a per interface basis
  *     via API/CLI
+ *
+ *   - nat_interface_specific_address_selection : Feature to select NAT address
+ *     based on the output interface assigned to the packet. This ensures using
+ *     respective interface address for NAT (Provides multiwan-dia support).
+ *     The feature also has support to invalidate the NAT session on
+ *     NAT-interface change due to routing decision changes.
  */
 
 #ifndef __included_ed_inlines_h__
@@ -147,6 +153,10 @@ nat_ed_session_alloc (snat_main_t * sm, u32 thread_index, f64 now, u8 proto)
   nat_ed_lru_insert (tsm, s, now, proto);
 
   s->ha_last_refreshed = now;
+#ifdef FLEXIWAN_FEATURE
+  /* Feature name: nat_interface_specific_address_selection */
+  s->sw_if_index = ~0;
+#endif
   vlib_set_simple_counter (&sm->total_sessions, thread_index, 0,
 			   pool_elts (tsm->sessions));
   return s;
@@ -262,6 +272,76 @@ per_vrf_sessions_is_expired (snat_session_t * s, u32 thread_index)
                                        s->per_vrf_sessions_index);
   return per_vrf_sessions->expired;
 }
+
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: nat_interface_specific_address_selection */
+/*
+ * The function marks the snat session with the interface sw_if_index value if
+ * the NAT IP address belongs to that interface
+ */
+static_always_inline void
+nat44_ed_set_session_interface (snat_main_t * sm, snat_session_t * s,
+				u32 pkt_tx_sw_if_index, u32 ip_addr_as_u32)
+{
+  /*
+   * Process only for output-feature. In the in2out_ed, It is expected that
+   * packet's tx interface (vnet_buffer (b)->sw_if_index[VLIB_TX])
+   * is already set for output feature. In the input-feature case, packet's tx
+   * interface value is expected to be with value ~0
+   */
+  if (pkt_tx_sw_if_index != ~0)
+    {
+      /*
+       * Searches the snat address context to look for a match of both
+       * sw_if_index and IP address
+       */
+      snat_address_t *ap;
+      vec_foreach (ap, sm->addresses)
+	{
+	  if ((pkt_tx_sw_if_index == ap->tx_sw_if_index) &&
+	      (ip_addr_as_u32 == ap->addr.as_u32))
+	    {
+	      s->sw_if_index = pkt_tx_sw_if_index;
+	      break;
+	    }
+	}
+    }
+}
+
+/*
+ * The function deletes the snat session if the interface assigned to the
+ * packet by the earlier routing decision mismatches with the interface value
+ * cached in the session context. This can possibly happen if there was a
+ * routing change in middle of the flow.
+ *
+ * This is performed to provide an opportunity for new NAT session create based
+ * on route change. Changing NAT IP in middle of flow would still break
+ * connection oriented transport like TCP. But can possibly help in recovering
+ * applications built over connection-less UDP or ICMP.
+ */
+static_always_inline i32
+nat44_ed_delete_session_on_intf_mismatch (snat_main_t * sm,
+					  snat_session_t * s,
+					  u32 pkt_tx_sw_if_index,
+					  u32 thread_index)
+{
+  /*
+   * Process only for output-feature. In the in2out_ed, It is expected that
+   * packet's tx interface (vnet_buffer (b)->sw_if_index[VLIB_TX])
+   * is already set for output feature. In the input-feature case, packet's tx
+   * interface value is expected to be with value ~0
+   */
+  if (PREDICT_FALSE ((pkt_tx_sw_if_index != ~0) && (s->sw_if_index != ~0) &&
+		     (pkt_tx_sw_if_index != s->sw_if_index)))
+    {
+      nat_free_session_data (sm, s, thread_index, 0);
+      nat_ed_session_delete (sm, s, thread_index, 1);
+      return 1;
+    }
+  return 0;
+}
+
+#endif
 
 #ifdef FLEXIWAN_FEATURE
 /* Feature name : session_recovery_on_nat_addr_flap */

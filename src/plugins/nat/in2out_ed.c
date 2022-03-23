@@ -25,13 +25,19 @@
  *     for them. That improves performance on multi-core machines,
  *     as NAT session are bound to the specific worker thread / core.
  *
- *   - session-recovery-on-nat-addr-flap : Prevent flushing of NAT sessions on
+ *   - session_recovery_on_nat_addr_flap : Prevent flushing of NAT sessions on
  *     NAT address flap. If same address gets added back, it shall ensure
  *     continuity of NAT sessions. On NAT interface address delete, the feature
  *     marks the flow as stale and activates it back if the same NAT address is
  *     added back on the interface. Feature is supported in
  *     nat44-ed-output-feature mode and can be enabled on a per interface basis
  *     via API/CLI
+ *
+ *   - nat_interface_specific_address_selection : Feature to select NAT address
+ *     based on the output interface assigned to the packet. This ensures using
+ *     respective interface address for NAT (Provides multiwan-dia support).
+ *     The feature also has support to invalidate the NAT session on
+ *     NAT-interface change due to routing decision changes.
  *
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - identity_nat_tcp_out2in: Fix to make out2in identity NAT TCP flows work
@@ -218,27 +224,19 @@ icmp_in2out_ed_slow_path (snat_main_t * sm, vlib_buffer_t * b0,
   return next0;
 }
 
-#ifdef FLEXIWAN
-static int
-nat_ed_alloc_addr_and_port (snat_main_t * sm, u32 rx_fib_index, u32 tx_sw_if_index,
-			    u32 nat_proto, u32 thread_index,
-			    ip4_address_t r_addr, u16 r_port, u8 proto,
-			    u16 port_per_thread, u32 snat_thread_index,
-			    snat_session_t * s,
-			    ip4_address_t * outside_addr,
-			    u16 * outside_port,
-			    clib_bihash_kv_16_8_t * out2in_ed_kv)
-#else
 static int
 nat_ed_alloc_addr_and_port (snat_main_t * sm, u32 rx_fib_index,
 			    u32 nat_proto, u32 thread_index,
 			    ip4_address_t r_addr, u16 r_port, u8 proto,
 			    u16 port_per_thread, u32 snat_thread_index,
 			    snat_session_t * s,
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: nat_interface_specific_address_selection */
+			    u32 sw_if_index,
+#endif
 			    ip4_address_t * outside_addr,
 			    u16 * outside_port,
 			    clib_bihash_kv_16_8_t * out2in_ed_kv)
-#endif
 {
   int i;
   snat_address_t *a, *ga = 0;
@@ -249,8 +247,11 @@ nat_ed_alloc_addr_and_port (snat_main_t * sm, u32 rx_fib_index,
   for (i = 0; i < vec_len (sm->addresses); i++)
     {
       a = sm->addresses + i;
-#ifdef FLEXIWAN
-      if ((a->tx_sw_if_index != ~0) && (a->tx_sw_if_index != tx_sw_if_index))
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: nat_interface_specific_address_selection */
+      /* Prefer selecting address assigned to the out interface */
+      if ((sw_if_index != ~0) && (a->tx_sw_if_index != ~0) &&
+	  (a->tx_sw_if_index != sw_if_index))
        continue;
 #endif
       switch (nat_proto)
@@ -477,23 +478,16 @@ slow_path_ed (snat_main_t * sm,
 
       /* Try to create dynamic translation */
       outside_port = l_port;	// suggest using local port to allocation function
-#ifdef FLEXIWAN
-      if (nat_ed_alloc_addr_and_port (sm, rx_fib_index,
-				      vnet_buffer (b)->sw_if_index[VLIB_TX],
-				      nat_proto,
-				      thread_index, r_addr, r_port, proto,
-				      sm->port_per_thread,
-				      tsm->snat_thread_index, s,
-				      &outside_addr,
-				      &outside_port, &out2in_ed_kv))
-#else
       if (nat_ed_alloc_addr_and_port (sm, rx_fib_index, nat_proto,
 				      thread_index, r_addr, r_port, proto,
 				      sm->port_per_thread,
 				      tsm->snat_thread_index, s,
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: nat_interface_specific_address_selection */
+				      vnet_buffer (b)->sw_if_index[VLIB_TX],
+#endif
 				      &outside_addr,
 				      &outside_port, &out2in_ed_kv))
-#endif
 	{
 	  nat_elog_notice ("addresses exhausted");
 	  b->error = node->errors[NAT_IN2OUT_ED_ERROR_OUT_OF_PORTS];
@@ -502,6 +496,12 @@ slow_path_ed (snat_main_t * sm,
 	}
       s->out2in.addr = outside_addr;
       s->out2in.port = outside_port;
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: nat_interface_specific_address_selection */
+      nat44_ed_set_session_interface (sm, s,
+				      vnet_buffer (b)->sw_if_index[VLIB_TX],
+	                              outside_addr.as_u32);
+#endif
     }
   else
     {
@@ -766,6 +766,10 @@ icmp_match_in2out_ed (snat_main_t * sm, vlib_node_runtime_t * node,
 
   if (clib_bihash_search_16_8 (&tsm->in2out_ed, &kv, &value))
     {
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: nat_interface_specific_address_selection */
+no_session:
+#endif
       if (vnet_buffer (b)->sw_if_index[VLIB_TX] != ~0)
 	{
 	  if (PREDICT_FALSE
@@ -831,6 +835,15 @@ icmp_match_in2out_ed (snat_main_t * sm, vlib_node_runtime_t * node,
       s =
 	pool_elt_at_index (tsm->sessions,
 			   ed_value_get_session_index (&value));
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: nat_interface_specific_address_selection */
+      if (nat44_ed_delete_session_on_intf_mismatch
+	  (sm, s, vnet_buffer (b)->sw_if_index[VLIB_TX], thread_index))
+	{
+	  s = NULL;
+	  goto no_session;
+	}
+#endif
     }
 out:
   if (s)
@@ -890,10 +903,23 @@ nat44_ed_in2out_unknown_proto (snat_main_t * sm,
       s =
 	pool_elt_at_index (tsm->sessions,
 			   ed_value_get_session_index (&s_value));
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: nat_interface_specific_address_selection */
+      if (nat44_ed_delete_session_on_intf_mismatch
+	  (sm, s, vnet_buffer (b)->sw_if_index[VLIB_TX], thread_index))
+	{
+	  s = NULL;
+	  goto no_session;
+	}
+#endif
       new_addr = ip->src_address.as_u32 = s->out2in.addr.as_u32;
     }
   else
     {
+#ifdef FLEXIWAN_FEATURE
+/* Feature name: nat_interface_specific_address_selection */
+no_session:
+#endif
       if (PREDICT_FALSE
 	  (nat44_ed_maximum_sessions_exceeded
 	   (sm, rx_fib_index, thread_index)))
@@ -965,6 +991,12 @@ nat44_ed_in2out_unknown_proto (snat_main_t * sm,
       s->in2out.port = s->out2in.port = ip->protocol;
       if (is_sm)
 	s->flags |= SNAT_SESSION_FLAG_STATIC_MAPPING;
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: nat_interface_specific_address_selection */
+      nat44_ed_set_session_interface (sm, s,
+				      vnet_buffer (b)->sw_if_index[VLIB_TX],
+				      new_addr);
+#endif
 
       /* Add to lookup tables */
       init_ed_kv (&s_kv, s->in2out.addr, 0, ip->dst_address, 0, rx_fib_index,
@@ -1128,9 +1160,19 @@ nat44_ed_in2out_fast_path_node_fn_inline (vlib_main_t * vm,
       s0 =
 	pool_elt_at_index (tsm->sessions,
 			   ed_value_get_session_index (&value0));
+#ifdef FLEXIWAN_FEATURE
+      /* Feature name: nat_interface_specific_address_selection */
+      if (nat44_ed_delete_session_on_intf_mismatch
+	  (sm, s0, vnet_buffer (b0)->sw_if_index[VLIB_TX], thread_index))
+	{
+	  s0 = NULL;
+	  next[0] = def_slow;
+	  goto trace0;
+	}
+#endif
 
 #ifdef FLEXIWAN_FEATURE
-      /* Feature name: session-recovery-on-nat-addr-flap */
+      /* Feature name: session_recovery_on_nat_addr_flap */
       if (PREDICT_FALSE (s0->flags & SNAT_SESSION_FLAG_STALE_NAT_ADDR))
 	{
 	  if (nat44_ed_recover_session
@@ -1185,7 +1227,7 @@ nat44_ed_in2out_fast_path_node_fn_inline (vlib_main_t * vm,
 	}
 
 #ifdef FLEXIWAN_FEATURE
-      /* Feature name: session-recovery-on-nat-addr-flap */
+      /* Feature name: session_recovery_on_nat_addr_flap */
       if (PREDICT_FALSE (next[0] == NAT_NEXT_DROP))
 	{
 	  /*
