@@ -15,6 +15,15 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Fix for crash on scale setup (1000 vxLan/gre tunnels)
+ *     On a scale test with 1000 vxLan/gre tunnels created there is a chance that packet is received during construction of l2_node.
+ *     In this case classify_and_dispatch() function is called before set_int_l2_mode() and causing crash on feat_bitmap_get_next_node_index().
+ *     To fix this we make sure last-chance drop is configured: config->feature_bitmap |= L2INPUT_FEAT_DROP;
+ */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vnet/pg/pg.h>
@@ -127,6 +136,11 @@ classify_and_dispatch (l2input_main_t * msm, vlib_buffer_t * b0, u16 * next0)
 
   /* Get config for the input interface */
   l2_input_config_t *config = vec_elt_at_index (msm->configs, sw_if_index0);
+
+#ifdef FLEXIWAN_FIX
+  /* Make sure last-chance drop is configured */
+  config->feature_bitmap |= L2INPUT_FEAT_DROP;
+#endif /*FLEXIWAN_FIX*/
 
   /* Save split horizon group */
   vnet_buffer (b0)->l2.shg = config->shg;
