@@ -24,6 +24,7 @@
  *   - Do not ignore requests with msg_id 0 (DELETE and CREATE_CHILD_SA) used for rekeying.
  *   - Improved search for child sa inside ikev2_sa_get_child by checking both rspi and ispi.
  *   - Allow rekeying initiated by Strongswan responder.
+ *   - Reinitiate connection after receiving DELETE request.
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - New parameter for ipip_add_tunnel() API - GW - to accommodate path selection policy for peer
  *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
@@ -3404,6 +3405,8 @@ ikev2_node_internal (vlib_main_t * vm,
 		clib_host_to_net_u16 (b0->current_length - sizeof (*ip60));
 	    }
 	}
+
+#ifndef FLEXIWAN_FIX
       /* delete sa */
       if (sa0 && (sa0->state == IKEV2_STATE_DELETED ||
 		  sa0->state == IKEV2_STATE_NOTIFY_AND_DELETE))
@@ -3415,6 +3418,7 @@ ikev2_node_internal (vlib_main_t * vm,
 
 	  ikev2_delete_sa (ptd, sa0);
 	}
+#endif /* FLEXIWAN_FIX */
       if (PREDICT_FALSE ((node->flags & VLIB_NODE_FLAG_TRACE)
 			 && (b0->flags & VLIB_BUFFER_IS_TRACED)))
 	{
@@ -5371,7 +5375,9 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
           u8 del_old_ids = 0;
 #ifdef FLEXIWAN_FIX
           if (sa->state == IKEV2_STATE_AUTH_FAILED ||
-              sa->state == IKEV2_STATE_NO_PROPOSAL_CHOSEN){
+              sa->state == IKEV2_STATE_NO_PROPOSAL_CHOSEN ||
+              sa->state == IKEV2_STATE_DELETED ||
+              sa->state == IKEV2_STATE_NOTIFY_AND_DELETE){
             vec_add1 (to_be_deleted, sa - tkm->sas);
           }
           else if (sa->state == IKEV2_STATE_SA_INIT) {
