@@ -12,6 +12,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Fix for memory leak on multicore configuration
+ *     Fixed memory leak with nm_clone->processes structure in vlib_worker_thread_node_refork() function.
+*/
+
 #define _GNU_SOURCE
 
 #include <signal.h>
@@ -1226,6 +1234,10 @@ vlib_worker_thread_node_refork (void)
     }
 
   vec_free (old_rt);
+
+#ifdef FLEXIWAN_FIX
+  vec_free (nm_clone->processes);
+#endif /* FLEXIWAN_FIX */
 
   nm_clone->processes = vec_dup_aligned (nm->processes,
 					 CLIB_CACHE_LINE_BYTES);
