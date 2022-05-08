@@ -13,6 +13,12 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Adjusted default memory heap size from 1G to 2G to support 1000 tunnels in multicore configuration
+*/
+
 #define _GNU_SOURCE
 #include <pthread.h>
 #include <sched.h>
@@ -108,7 +114,12 @@ main (int argc, char *argv[])
   int i;
   vlib_main_t *vm = &vlib_global_main;
   void vl_msg_api_set_first_available_msg_id (u16);
+#ifdef FLEXIWAN_FIX
+  uword main_heap_size = (2ULL << 30);
+#else
   uword main_heap_size = (1ULL << 30);
+#endif /* FLEXIWAN_FIX */
+
   u8 *sizep;
   u32 size;
   clib_mem_page_sz_t main_heap_log2_page_sz = CLIB_MEM_PAGE_SZ_DEFAULT;
