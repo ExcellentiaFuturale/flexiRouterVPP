@@ -14,11 +14,11 @@
 DPDK_PKTMBUF_HEADROOM        ?= 128
 DPDK_USE_LIBBSD              ?= n
 DPDK_DEBUG                   ?= n
-DPDK_MLX4_PMD                ?= n
+DPDK_MLX4_PMD                ?= y
 DPDK_MLX5_PMD                ?= y
-DPDK_MLX5_COMMON_PMD         ?= n
+DPDK_MLX5_COMMON_PMD         ?= y
 DPDK_TAP_PMD                 ?= n
-DPDK_FAILSAFE_PMD            ?= n
+DPDK_FAILSAFE_PMD            ?= y
 DPDK_MACHINE                 ?= default
 DPDK_MLX_IBV_LINK            ?= static
 
