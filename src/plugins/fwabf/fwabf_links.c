@@ -311,6 +311,7 @@ u32 fwabf_links_add_interface (
   /*
    * Initialize new fwabf_link_t now.
    */
+  memset(link, 0, sizeof(*link));
 
   link->fwlabel     = fwlabel;
   link->sw_if_index = sw_if_index;
