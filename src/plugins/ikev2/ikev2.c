@@ -4461,8 +4461,16 @@ ikev2_get_profile_gateway_adj (vlib_main_t * vm, u32 p_index, u32 * adj_index)
   ikev2_main_t* km = &ikev2_main;
   ikev2_profile_t* p;
 
+  *adj_index = ~0;
+
   if (PREDICT_FALSE(p_index == ~0))
     return 0;
+
+  /* If p_index is value, the tunnel is being deleted in multi-core setup probably.
+     Return TRUE to enforce caller to drop packet on illegal state.
+  */
+  if (pool_is_free_index (km->profiles, p_index))
+    return 1;
 
   p = pool_elt_at_index (km->profiles, p_index);
   if (PREDICT_FALSE(!p))
