@@ -1,0 +1,219 @@
+## List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+#  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
+#  currently in deprecated state. It is likely deprecated as changes in
+#  DPDK scheduler APIs required corresponding changes from VPP side.
+#  The FlexiWAN commit makes the required corresponding changes and brings back
+#  the feature to working state. Additionaly made enhancements in the context
+#  of WAN QoS needs.
+#
+# The added APIs provide support to change the parameters of an existing pipe
+# or subport profile. For example, An use case is to change the pipe and / or
+# subport bandwidth without creating a new profile.
+diff --git a/lib/librte_sched/rte_sched.c b/lib/librte_sched/rte_sched.c
+index 7c56880681..74d4127dd2 100644
+--- a/lib/librte_sched/rte_sched.c
++++ b/lib/librte_sched/rte_sched.c
+@@ -1453,13 +1453,18 @@ rte_sched_subport_pipe_profile_add(struct rte_sched_port *port,
+ 	pp = &s->pipe_profiles[s->n_pipe_profiles];
+ 	rte_sched_pipe_profile_convert(s, params, pp, port->rate);
+ 
+-	/* Pipe profile should not exists */
++	/* 
++	 * Different profiles with same parameters is possible in certain use
++	 * cases where the profile's bandwidth keep changing over a period of
++	 * time
++	// Pipe profile should not exists
+ 	for (i = 0; i < s->n_pipe_profiles; i++)
+ 		if (memcmp(s->pipe_profiles + i, pp, sizeof(*pp)) == 0) {
+ 			RTE_LOG(ERR, SCHED,
+ 				"%s: Pipe profile exists\n", __func__);
+ 			return -EINVAL;
+ 		}
++	*/
+ 
+ 	/* Pipe profile commit */
+ 	*pipe_profile_id = s->n_pipe_profiles;
+@@ -1473,6 +1478,59 @@ rte_sched_subport_pipe_profile_add(struct rte_sched_port *port,
+ 	return 0;
+ }
+ 
++int
++rte_sched_subport_pipe_profile_update(struct rte_sched_port *port,
++	uint32_t subport_id,
++	uint32_t pipe_profile_id,
++	struct rte_sched_pipe_params *params)
++{
++	struct rte_sched_subport *s;
++	struct rte_sched_pipe_profile *pp;
++	int status;
++
++	/* Port */
++	if (port == NULL) {
++		RTE_LOG(ERR, SCHED,
++			"%s: Incorrect value for parameter port\n", __func__);
++		return -EINVAL;
++	}
++
++	/* Subport id not exceeds the max limit */
++	if (subport_id > port->n_subports_per_port) {
++		RTE_LOG(ERR, SCHED,
++			"%s: Incorrect value for subport id\n", __func__);
++		return -EINVAL;
++	}
++
++	s = port->subports[subport_id];
++
++	/* Pipe profiles exceeds the configured count */
++	if (pipe_profile_id >= s->n_pipe_profiles) {
++		RTE_LOG(ERR, SCHED,
++			"%s: Pipe profiles exceeds the configured count\n", __func__);
++		return -EINVAL;
++	}
++
++	/* Pipe params */
++	status = pipe_profile_check(params, port->rate, &s->qsize[0]);
++	if (status != 0) {
++		RTE_LOG(ERR, SCHED,
++			"%s: Pipe profile check failed(%d)\n", __func__, status);
++		return -EINVAL;
++	}
++
++	pp = &s->pipe_profiles[pipe_profile_id];
++	rte_sched_pipe_profile_convert(s, params, pp, port->rate);
++
++
++	if (s->pipe_tc_be_rate_max < params->tc_rate[RTE_SCHED_TRAFFIC_CLASS_BE])
++		s->pipe_tc_be_rate_max = params->tc_rate[RTE_SCHED_TRAFFIC_CLASS_BE];
++
++	rte_sched_port_log_pipe_profile(s, pipe_profile_id);
++
++	return 0;
++}
++
+ int
+ rte_sched_port_subport_profile_add(struct rte_sched_port *port,
+ 	struct rte_sched_subport_profile_params *params,
+@@ -1539,6 +1597,51 @@ rte_sched_port_subport_profile_add(struct rte_sched_port *port,
+ 	return 0;
+ }
+ 
++int
++rte_sched_port_subport_profile_update(struct rte_sched_port *port,
++	uint32_t subport_profile_id,
++	struct rte_sched_subport_profile_params *params)
++{
++	int status;
++	struct rte_sched_subport_profile *dst;
++
++	/* Port */
++	if (port == NULL) {
++		RTE_LOG(ERR, SCHED, "%s: "
++		"Incorrect value for parameter port\n", __func__);
++		return -EINVAL;
++	}
++
++	if (params == NULL) {
++		RTE_LOG(ERR, SCHED, "%s: "
++		"Incorrect value for parameter profile\n", __func__);
++		return -EINVAL;
++	}
++
++	if (subport_profile_id >= port->n_subport_profiles) {
++		RTE_LOG(ERR, SCHED, "%s: "
++		"Profile id exceeds the count of configured profiles\n",
++		__func__);
++		return -EINVAL;
++	}
++
++	dst = port->subport_profiles + subport_profile_id;
++
++
++	status = subport_profile_check(params, port->rate);
++	if (status != 0) {
++		RTE_LOG(ERR, SCHED,
++		"%s: subport profile check failed(%d)\n", __func__, status);
++		return -EINVAL;
++	}
++
++	rte_sched_subport_profile_convert(params, dst, port->rate);
++
++	rte_sched_port_log_subport_profile(port, subport_profile_id);
++
++	return 0;
++}
++
+ static inline uint32_t
+ rte_sched_port_qindex(struct rte_sched_port *port,
+ 	uint32_t subport,
+diff --git a/lib/librte_sched/rte_sched.h b/lib/librte_sched/rte_sched.h
+index c1a772b70c..c8f4acf815 100644
+--- a/lib/librte_sched/rte_sched.h
++++ b/lib/librte_sched/rte_sched.h
+@@ -324,6 +324,29 @@ rte_sched_subport_pipe_profile_add(struct rte_sched_port *port,
+ 	struct rte_sched_pipe_params *params,
+ 	uint32_t *pipe_profile_id);
+ 
++/**
++ * @warning
++ * @b EXPERIMENTAL: this API may change without prior notice.
++ *
++ * Hierarchical scheduler pipe profile update
++ *
++ * @param port
++ *   Handle to port scheduler instance
++ * @param subport_id
++ *   Subport ID
++ * @param pipe_profile_id
++ *   profile id to be updated
++ * @param params
++ *   Pipe profile parameters to be applied
++ * @return
++ *   0 upon success, error code otherwise
++ */
++__rte_experimental
++int
++rte_sched_subport_pipe_profile_update(struct rte_sched_port *port,
++	uint32_t subport_id, uint32_t pipe_profile_id,
++	struct rte_sched_pipe_params *params);
++
+ /**
+  * @warning
+  * @b EXPERIMENTAL: this API may change without prior notice.
+@@ -347,6 +370,26 @@ rte_sched_port_subport_profile_add(struct rte_sched_port *port,
+ 	struct rte_sched_subport_profile_params *profile,
+ 	uint32_t *subport_profile_id);
+ 
++/**
++ * @warning
++ * @b EXPERIMENTAL: this API may change without prior notice.
++ *
++ * Hierarchical scheduler subport bandwidth profile update
++ * @param port
++ *   Handle to port scheduler instance
++ * @param subport_profile_id
++ *   Subport profile id to be updated
++ * @param profile
++ *   Subport bandwidth profile to be used in update
++ * @return
++ *   0 upon success, error code otherwise
++ */
++__rte_experimental
++int
++rte_sched_port_subport_profile_update(struct rte_sched_port *port,
++	uint32_t subport_profile_id,
++	struct rte_sched_subport_profile_params *profile);
++
+ /**
+  * Hierarchical scheduler subport configuration
+  * Note that this function is safe to use at runtime
+diff --git a/lib/librte_sched/version.map b/lib/librte_sched/version.map
+index ace284b7de..11686f4202 100644
+--- a/lib/librte_sched/version.map
++++ b/lib/librte_sched/version.map
+@@ -30,4 +30,6 @@ EXPERIMENTAL {
+ 	rte_sched_subport_pipe_profile_add;
+ 	# added in 20.11
+ 	rte_sched_port_subport_profile_add;
++	rte_sched_port_subport_profile_update;
++	rte_sched_subport_pipe_profile_update;
+ };

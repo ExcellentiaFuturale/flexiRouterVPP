@@ -1,0 +1,157 @@
+/*
+ * Copyright (c) 2015-2016 Cisco and/or its affiliates.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
+ *    currently in deprecated state. It is likely deprecated as changes
+ *    in DPDK scheduler APIs required corresponding changes from VPP side.
+ *    The FlexiWAN commit makes the required corresponding changes and brings
+ *    back the feature to working state. Additionaly made enhancements in the
+ *    context of WAN QoS needs.
+ *
+ * This deprecated file is enhanced and added as part of the
+ * flexiwan feature - integrating_dpdk_qos_sched
+ * Location of deprecated file: extras/deprecated/dpdk-hqos/api/dpdk.api
+ */
+
+option version = "1.0.0";
+import "vnet/interface_types.api";
+
+
+/** \brief DPDK interface HQoS pipe profile create/update request
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param sw_if_index - the interface index
+    @param subport_id - subport ID
+    @param profile - pipe profile ID
+    @param tb_rate - pipe rate in bytes/sec
+    @param tb_size - token bucket size in bytes
+    @param tc_rate[0 - 12] - traffic class rate in bytes/sec
+    @param tc_period - traffic class period in ms
+    @param wrr[0 - 3] - WRR weight for queues
+*/
+autoreply define sw_interface_set_dpdk_hqos_pipe_profile {
+    u32 client_index;
+    u32 context;
+    vl_api_interface_index_t sw_if_index;
+    u32 subport_id;
+    u32 profile;
+    u32 tb_rate;
+    u32 tb_size;
+    u32 tc_rate[13];
+    u32 tc_period;
+    u32 wrr[4];
+};
+
+
+/** \brief DPDK interface HQoS pipe profile set request
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param sw_if_index - the interface
+    @param subport_id - subport ID
+    @param pipe_id - pipe ID within its subport
+    @param profile - pipe profile ID
+*/
+autoreply define sw_interface_set_dpdk_hqos_pipe {
+    u32 client_index;
+    u32 context;
+    vl_api_interface_index_t sw_if_index;
+    u32 subport_id;
+    u32 pipe_id;
+    u32 profile;
+};
+
+
+/** \brief DPDK interface HQoS subport profile create/update request
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param sw_if_index - the interface index
+    @param profile - subport profile ID
+    @param tb_rate - pipe rate in bytes/sec
+    @param tb_size - token bucket size in bytes
+    @param tc_rate[0 - 12] - traffic class rate in bytes/sec
+    @param tc_period - traffic class period in ms
+
+*/
+autoreply define sw_interface_set_dpdk_hqos_subport_profile {
+    u32 client_index;
+    u32 context;
+    vl_api_interface_index_t sw_if_index;
+    u32 profile;
+    u32 tb_rate;
+    u32 tb_size;
+    u32 tc_rate[13];
+    u32 tc_period;
+};
+
+
+/** \brief DPDK interface HQoS subport parameters set request
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param sw_if_index - the interface
+    @param subport - subport ID
+    @param profile - subport profile ID
+*/
+autoreply define sw_interface_set_dpdk_hqos_subport {
+    u32 client_index;
+    u32 context;
+    vl_api_interface_index_t sw_if_index;
+    u32 subport_id;
+    u32 profile;
+};
+
+
+/** \brief DPDK interface - HQoS support to classify using pktfield
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param sw_if_index - the interface
+    @param id - subport - 0, pipe - 1, tc - 2
+    @param offset - packet offset
+    @param mask - mask to be used to retrieve the id of subport/pipe/tc
+*/
+autoreply define sw_interface_set_dpdk_if_hqos_pktfield {
+    u32 client_index;
+    u32 context;
+    vl_api_interface_index_t sw_if_index;
+    u32 id;
+    u32 offset;
+    u64 mask;
+};
+
+
+/** \brief DPDK interface HQoS tctbl entry set request
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param sw_if_index - the interface
+    @param entry - entry index ID
+    @param tc - traffic class (0 .. 12)
+    @param queue - traffic class queue (0 .. 3)
+*/
+autoreply define sw_interface_set_dpdk_hqos_tctbl {
+    u32 client_index;
+    u32 context;
+    vl_api_interface_index_t sw_if_index;
+    u32 entry;
+    u32 tc;
+    u32 queue;
+};
+
+/*
+ * Local Variables:
+ * eval: (c-set-style "gnu")
+ * End:
+ */
+

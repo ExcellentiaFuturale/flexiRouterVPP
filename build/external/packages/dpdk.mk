@@ -10,14 +10,30 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+#  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
+#  currently in deprecated state. It is likely deprecated as changes in
+#  DPDK scheduler APIs required corresponding changes from VPP side.
+#  The FlexiWAN commit makes the required corresponding changes and brings back
+#  the feature to working state. Additionaly made enhancements in the context
+#  of WAN QoS needs.
 
 DPDK_PKTMBUF_HEADROOM        ?= 128
 DPDK_USE_LIBBSD              ?= n
+#FLEXIWAN_FEATURE - integrating_dpdk_qos_sched - Start 
+DPDK_SCHED_COLLECT_STATS     ?= y
+DPDK_SCHED_SUBPORT_TC_OV     ?= y
+DPDK_SCHED_RED               ?= y
+#FLEXIWAN_FEATURE - integrating_dpdk_qos_sched - End 
 DPDK_DEBUG                   ?= n
 DPDK_MLX4_PMD                ?= n
 DPDK_MLX5_PMD                ?= y
 DPDK_MLX5_COMMON_PMD         ?= n
-DPDK_TAP_PMD                 ?= n
+#FLEXIWAN_FEATURE - integrating_dpdk_qos_sched - Start 
+DPDK_TAP_PMD                 ?= y
+#DPDK_TAP_PMD                ?= n (By default disabled)
+#FLEXIWAN_FEATURE - integrating_dpdk_qos_sched - End 
 DPDK_FAILSAFE_PMD            ?= n
 DPDK_MACHINE                 ?= default
 DPDK_MLX_IBV_LINK            ?= static
@@ -37,6 +53,8 @@ ifeq ($(DPDK_DEBUG), y)
 DPDK_BUILD_TYPE:=debug
 endif
 
+#FLEXIWAN_FEATURE - integrating_dpdk_qos_sched
+#Change: The af_packet driver was removed from disable list
 DPDK_DRIVERS_DISABLED := baseband/\*,	\
 	bus/dpaa,							\
 	bus/ifpga,							\
@@ -53,7 +71,6 @@ DPDK_DRIVERS_DISABLED := baseband/\*,	\
 	crypto/zuc,						\
 	event/\*,							\
 	mempool/dpaa,						\
-	net/af_packet,						\
 	net/bnx2x,							\
 	net/bonding,						\
 	net/ipn3ke,							\
@@ -135,13 +152,16 @@ echo '$(HASH)define RTE_$(1) $(DPDK_$(1))' \
 fi
 endef
 
+#FLEXIWAN_FEATURE - integrating_dpdk_qos_sched
+#Changes: Fixes required to add the enabled features to the config file
 define dpdk_config_def
 if [[ "$(DPDK_$(1))" == "y" ]]; then \
-    if ! grep -q "RTE_$(1)" $(dpdk_build_dir)/rte_build_config.h \
-      $(dpdk_src_dir)/config/rte_config.h ; then \
+    if ! grep -q "RTE_$(1)" $(dpdk_build_dir)/rte_build_config.h ; then \
         echo '$(HASH)define RTE_$(1) 1' \
           >> $(dpdk_build_dir)/rte_build_config.h ; \
     fi; \
+    sed -i "s/.*RTE_$(1).*/$(HASH)define RTE_$(1) 1/" \
+           $(dpdk_src_dir)/config/rte_config.h ; \
 elif [[ "$(DPDK_$(1))" == "n" ]]; then \
     sed -i '/$(HASH)define RTE_$(1) .*/d' $(dpdk_build_dir)/rte_build_config.h \
       $(dpdk_src_dir)/config/rte_config.h ; \
@@ -162,6 +182,8 @@ DPDK_MESON_ARGS = \
 
 PIP_DOWNLOAD_DIR = $(CURDIR)/downloads/
 
+#FLEXIWAN_FEATURE - integrating_dpdk_qos_sched
+# Changes: Added calls to SCHED_COLLECT_STATS, SCHED_RED, SCHED_SUBPORT_TC_OV
 define dpdk_config_cmds
 	cd $(dpdk_build_dir) && \
 	rm -rf ../dpdk-meson-venv && \
@@ -178,6 +200,9 @@ define dpdk_config_cmds
 	echo "DPDK post meson configuration" && \
 	echo "Altering rte_build_config.h" && \
 	$(call dpdk_config,PKTMBUF_HEADROOM) && \
+	$(call dpdk_config_def,SCHED_COLLECT_STATS) && \
+	$(call dpdk_config_def,SCHED_RED) && \
+	$(call dpdk_config_def,SCHED_SUBPORT_TC_OV) && \
 	$(call dpdk_config_def,USE_LIBBSD)
 endef
 

@@ -12,6 +12,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
+ *    currently in deprecated state. It is likely deprecated as changes
+ *    in DPDK scheduler APIs required corresponding changes from VPP side.
+ *    The FlexiWAN commit makes the required corresponding changes and brings
+ *    back the feature to working state. Additionaly made enhancements in the
+ *    context of WAN QoS needs.
+ */
+
 #ifndef __included_dpdk_h__
 #define __included_dpdk_h__
 
@@ -126,6 +137,56 @@ typedef enum
 
 typedef uint16_t dpdk_portid_t;
 
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+typedef struct
+{
+  /* Required for vec_validate_aligned */
+  CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
+
+  struct rte_ring *swq;
+
+  u64 hqos_field0_slabmask;
+  u32 hqos_field0_slabpos;
+  u32 hqos_field0_slabshr;
+  u64 hqos_field1_slabmask;
+  u32 hqos_field1_slabpos;
+  u32 hqos_field1_slabshr;
+  u64 hqos_field2_slabmask;
+  u32 hqos_field2_slabpos;
+  u32 hqos_field2_slabshr;
+  u32 hqos_tc_table[64];
+} dpdk_device_hqos_per_worker_thread_t;
+
+typedef struct
+{
+  /* Required for vec_validate_aligned */
+  CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
+  struct rte_ring **swq;
+  struct rte_mbuf **pkts_enq;
+  struct rte_mbuf **pkts_deq;
+  struct rte_sched_port *hqos;
+  u32 hqos_burst_enq;
+  u32 hqos_burst_deq;
+  u32 pkts_enq_len;
+  u32 swq_pos;
+  u32 flush_count;
+} dpdk_device_hqos_per_hqos_thread_t;
+#endif /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
+
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+#define foreach_dpdk_device_flags \
+  _( 0, ADMIN_UP, "admin-up") \
+  _( 1, PROMISC, "promisc") \
+  _( 2, PMD, "pmd") \
+  _( 3, PMD_INIT_FAIL, "pmd-init-fail") \
+  _( 4, MAYBE_MULTISEG, "maybe-multiseg") \
+  _( 5, HAVE_SUBIF, "subif") \
+  _( 6, HQOS, "hqos") \
+  _( 9, TX_OFFLOAD, "tx-offload") \
+  _(10, INTEL_PHDR_CKSUM, "intel-phdr-cksum") \
+  _(11, RX_FLOW_OFFLOAD, "rx-flow-offload") \
+  _(12, RX_IP4_CKSUM, "rx-ip4-cksum")
+#else    /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 #define foreach_dpdk_device_flags \
   _( 0, ADMIN_UP, "admin-up") \
   _( 1, PROMISC, "promisc") \
@@ -137,6 +198,7 @@ typedef uint16_t dpdk_portid_t;
   _(10, INTEL_PHDR_CKSUM, "intel-phdr-cksum") \
   _(11, RX_FLOW_OFFLOAD, "rx-flow-offload") \
   _(12, RX_IP4_CKSUM, "rx-ip4-cksum")
+#endif   /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 
 enum
 {
@@ -218,6 +280,12 @@ typedef struct
   u32 parked_loop_count;
   struct rte_flow_error last_flow_error;
 
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+  /* HQoS related */
+  dpdk_device_hqos_per_worker_thread_t *hqos_wt;
+  dpdk_device_hqos_per_hqos_thread_t *hqos_ht;
+#endif   /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
+
   /* af_packet instance number */
   u16 af_packet_instance_num;
 
@@ -243,6 +311,80 @@ typedef struct
 #define DPDK_LINK_POLL_INTERVAL       (3.0)
 #define DPDK_MIN_LINK_POLL_INTERVAL   (0.001)	/* 1msec */
 
+
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+typedef struct
+{
+  u32 device;
+  u16 queue_id;
+} dpdk_device_and_queue_t;
+
+#ifndef DPDK_HQOS_DBG_BYPASS
+#define DPDK_HQOS_DBG_BYPASS 0
+#endif
+
+#ifndef HQOS_FLUSH_COUNT_THRESHOLD
+#define HQOS_FLUSH_COUNT_THRESHOLD              100000
+#endif
+
+#ifndef MAX
+#define MAX(v1, v2)	((v1) > (v2) ? (v1) : (v2))
+#endif
+
+#define HQOS_MAX_SCHED_SUBPORTS              1
+#define HQOS_MAX_SCHED_SUBPORT_PROFILES      1
+#define HQOS_MAX_SCHED_PIPES                 4096
+#define HQOS_MAX_SCHED_PIPE_PROFILES         4096
+
+#define HQOS_DEFAULT_SCHED_MTU_BYTES         (1500 + 18) /*Ethernet vlan case*/
+#define HQOS_DEFAULT_SCHED_PORT_RATE         1250000000
+#define HQOS_DEFAULT_SCHED_TB_SIZE_MS        5  /* 5ms of default port rate */
+#define HQOS_DEFAULT_SCHED_SUBPORT_TC_PERIOD_MS 10 /* in milliseconds */
+#define HQOS_DEFAULT_SCHED_PIPE_TC_PERIOD_MS    40 /* in milliseconds */
+
+#define HQOS_MIN_SCHED_TB_SIZE_BYTES         (4 * HQOS_DEFAULT_SCHED_MTU_BYTES)
+
+#define HQOS_SWQ_SIZE			     4096 /* feeder queue size */
+#define HQOS_BURST_ENQ                       24
+#define HQOS_BURST_DEQ                       20
+
+
+typedef struct dpdk_device_config_hqos_t
+{
+  u32 hqos_thread;
+  u32 hqos_thread_valid;
+
+  u32 swq_size;
+  u32 burst_enq;
+  u32 burst_deq;
+
+  u32 pktfield0_slabpos;
+  u32 pktfield1_slabpos;
+  u32 pktfield2_slabpos;
+  u64 pktfield0_slabmask;
+  u64 pktfield1_slabmask;
+  u64 pktfield2_slabmask;
+  u32 tc_table[64];
+
+  struct rte_sched_port_params port_params;
+
+  /* Vector with subport params indexed on the subport id */
+  struct rte_sched_subport_params * subport_params;
+
+  /* Per subport : count of pipes configured */
+  u32 pipes[HQOS_MAX_SCHED_SUBPORTS];
+
+  /* Index represents subport_id and value at the index represents profile id */
+  u32 * subport_profile_id_map;
+
+  /*
+    Index represents [subport_id][pipe_id] and
+    value at the index represents profile id
+   */
+  u32 * pipe_profile_id_map[HQOS_MAX_SCHED_SUBPORTS];
+} dpdk_device_config_hqos_t;
+#endif /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
+
 #define foreach_dpdk_device_config_item \
   _ (num_rx_queues) \
   _ (num_tx_queues) \
@@ -264,6 +406,11 @@ typedef struct
     foreach_dpdk_device_config_item
 #undef _
     clib_bitmap_t * workers;
+
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+  u32 hqos_enabled;
+  dpdk_device_config_hqos_t hqos;
+#endif   /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
   u8 tso;
   u8 *devargs;
   clib_bitmap_t *rss_queues;
@@ -329,6 +476,11 @@ typedef struct
   /* Devices */
   dpdk_device_t *devices;
   dpdk_per_thread_data_t *per_thread_data;
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+  dpdk_device_and_queue_t **devices_by_hqos_cpu;
+  u32 hqos_cpu_first_index;
+  u32 hqos_cpu_count;
+#endif   /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 
   /* buffer flags template, configurable to enable/disable tcp / udp cksum */
   u32 buffer_flags_template;
@@ -465,6 +617,69 @@ void dpdk_cli_reference (void);
 int dpdk_buffer_validate_trajectory_all (u32 * uninitialized);
 void dpdk_buffer_poison_trajectory_all (void);
 #endif
+
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+
+/* DPDK HQoS functions */
+
+clib_error_t *
+unformat_hqos (unformat_input_t * input,
+                             dpdk_device_config_hqos_t * hqos);
+
+int
+dpdk_hqos_validate_mask (u64 mask, u32 n);
+
+void
+dpdk_device_config_hqos_default (dpdk_device_config_hqos_t * hqos);
+
+clib_error_t *
+dpdk_hqos_get_intf_context (u32 sw_if_index, dpdk_device_t ** xd,
+                            dpdk_device_config_t ** devconf);
+clib_error_t *
+dpdk_hqos_get_subport_profile (dpdk_device_config_hqos_t * hqos,
+			       u32 profile_id,
+                               struct rte_sched_subport_profile_params *
+			       p_out);
+
+clib_error_t *
+dpdk_hqos_setup_subport_profile (dpdk_device_t * xd,
+				 dpdk_device_config_hqos_t * hqos,
+				 u32 profile_id,
+                                 struct rte_sched_subport_profile_params *
+				 params);
+
+clib_error_t *
+dpdk_hqos_get_pipe_profile (dpdk_device_config_hqos_t * hqos,
+			    u32 subport_id, u32 profile_id,
+			    struct rte_sched_pipe_params * p_out);
+
+clib_error_t *
+dpdk_hqos_setup_pipe_profile (dpdk_device_t * xd,
+			      dpdk_device_config_hqos_t * hqos, u32 subport_id,
+			      u32 profile_id,
+                              struct rte_sched_pipe_params * params);
+
+clib_error_t *
+dpdk_hqos_setup_subport (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos,
+			 u32 subport_id, u32 profile_id);
+
+clib_error_t *
+dpdk_hqos_setup_pipe (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos,
+                      u32 subport_id, u32 pipe_id, u32 profile_id);
+
+clib_error_t *
+dpdk_hqos_get_queue_stats (dpdk_device_t * xd,
+			   dpdk_device_config_hqos_t * hqos, u32 subport_id,
+			   u32 pipe_id, u32 tc, u32 tc_q,
+			   struct rte_sched_queue_stats * stats);
+
+clib_error_t *dpdk_port_setup_hqos (dpdk_device_t * xd,
+                                   dpdk_device_config_hqos_t * hqos);
+void dpdk_hqos_metadata_set (dpdk_device_hqos_per_worker_thread_t * hqos,
+                            struct rte_sched_port * port,
+                            struct rte_mbuf **pkts, u32 n_pkts);
+
+#endif   /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 
 #endif /* __included_dpdk_h__ */
 

@@ -36,6 +36,15 @@
  *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
+ *    currently in deprecated state. It is likely deprecated as changes
+ *    in DPDK scheduler APIs required corresponding changes from VPP side.
+ *    The FlexiWAN commit makes the required corresponding changes and brings
+ *    back the feature to working state. Additionaly made enhancements in the
+ *    context of WAN QoS needs.
+ */
 
 /** \file
     vlib node functions
@@ -241,6 +250,15 @@ vlib_node_set_interrupt_pending_with_data (vlib_main_t * vm, u32 node_index,
     }
   else
     {
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+      /*
+       * Feature specific workers like dpdk qos workers are skipped as they do
+       * not currently have needs to process pending interrupts. Currently this
+       * variable is as well not initialized by non-core workers like dpdk-qos
+       */
+      if (!nm->pending_interrupt_lock)
+        return;
+#endif  /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
       /* remote thread */
       clib_spinlock_lock (&nm->pending_interrupt_lock);
       vec_add2 (nm->pending_remote_interrupts, i, 1);

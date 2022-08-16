@@ -12,6 +12,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
+ *    currently in deprecated state. It is likely deprecated as changes
+ *    in DPDK scheduler APIs required corresponding changes from VPP side.
+ *    The FlexiWAN commit makes the required corresponding changes and brings
+ *    back the feature to working state. Additionaly made enhancements in the
+ *    context of WAN QoS needs.
+ */
+
 #include <vnet/vnet.h>
 #include <vppinfra/vec.h>
 #include <vppinfra/format.h>
@@ -958,6 +969,27 @@ unformat_rss_fn (unformat_input_t * input, uword * rss_fn)
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+clib_error_t *
+unformat_hqos (unformat_input_t * input, dpdk_device_config_hqos_t * hqos)
+{
+  clib_error_t *error = 0;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "hqos-thread %u", &hqos->hqos_thread))
+       hqos->hqos_thread_valid = 1;
+      else
+       {
+         error = clib_error_return (0, "unknown input `%U'",
+                                    format_unformat_error, input);
+         break;
+       }
+    }
+
+  return error;
+}
+#endif    /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 
 /*
  * fd.io coding-style-patch-verification: ON
