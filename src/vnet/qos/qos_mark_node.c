@@ -13,6 +13,13 @@
  * limitations under the License.
  */
 
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
+ */
 #include <vnet/ip/ip.h>
 #include <vnet/feature/feature.h>
 #include <vnet/qos/qos_egress_map.h>
@@ -85,7 +92,13 @@ qos_mark_inline (vlib_main_t * vm,
 	  qem0 = qos_egress_map_interface (sw_if_index0, output_source);
 	  qos0 = qem0->qem_output[input_source0][vnet_buffer2 (b0)->qos.bits];
 
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification */
+	  /* Change to process qos bits if classified-flag is set */ 
+         if (PREDICT_TRUE ((b0->flags & VNET_BUFFER_F_QOS_DATA_VALID) ||
+             (b0->flags & VNET_BUFFER_F_IS_CLASSIFIED)))
+#else   /* FLEXIWAN_FEATURE - acl_based_classification */
 	  if (PREDICT_TRUE (b0->flags & VNET_BUFFER_F_QOS_DATA_VALID))
+#endif  /* FLEXIWAN_FEATURE - acl_based_classification */
 	    {
 	      /* there is a source of QoS recording for this packet */
 	      if (QOS_SOURCE_IP == output_source)

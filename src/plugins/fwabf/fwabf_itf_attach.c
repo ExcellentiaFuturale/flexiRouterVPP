@@ -70,6 +70,7 @@
 #include <vnet/fib/ip6_fib.h>
 #include <vnet/ip/ip4_inlines.h>
 #include <vnet/ip/ip6_inlines.h>
+#include <vnet/qos/qos_types.h>
 #include <plugins/acl/exports.h>
 
 /**
@@ -608,6 +609,14 @@ fwabf_input_ip4 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                       next0 = dpo0_policy.dpoi_next_node;
                       vnet_buffer (b0)->ip.adj_index[VLIB_TX] = dpo0_policy.dpoi_index;
                     }
+
+		  /* Mark the packet with classification result */
+		  vnet_buffer2 (b0)->qos.service_class = sc;
+		  vnet_buffer2 (b0)->qos.importance =
+		    am->acls[match_acl_index].rules[match_rule_index].importance;
+		  vnet_buffer2 (b0)->qos.source = QOS_SOURCE_IP;
+		  b0->flags |= VNET_BUFFER_F_IS_CLASSIFIED;
+
                   matches++;
                 }
             } /*if (fwabf_links_is_dpo_labeled_or_default_route (lb0)*/
@@ -788,6 +797,14 @@ fwabf_input_ip6 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                       next0 = dpo0_policy.dpoi_next_node;
                       vnet_buffer (b0)->ip.adj_index[VLIB_TX] = dpo0_policy.dpoi_index;
                     }
+
+		  /* Mark the packet with classification result */
+		  vnet_buffer2 (b0)->qos.service_class = sc;
+		  vnet_buffer2 (b0)->qos.importance =
+		    am->acls[match_acl_index].rules[match_rule_index].importance;
+		  vnet_buffer2 (b0)->qos.source = QOS_SOURCE_IP;
+		  b0->flags |= VNET_BUFFER_F_IS_CLASSIFIED;
+
                   matches++;
                 }
             } /*if (fwabf_links_is_dpo_labeled_or_default_route (lb0)*/

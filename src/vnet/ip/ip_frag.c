@@ -13,6 +13,14 @@
  * limitations under the License.
  *---------------------------------------------------------------------------
  */
+
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
+ */
 /*
  * IPv4 Fragmentation Node
  *
@@ -62,11 +70,27 @@ frag_set_sw_if_index (vlib_buffer_t * to, vlib_buffer_t * from)
     vnet_buffer (from)->ip.adj_index[VLIB_TX];
 
   /* Copy QoS Bits */
+#ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
+  if (PREDICT_TRUE((from->flags & VNET_BUFFER_F_QOS_DATA_VALID) ||
+      (from->flags & VNET_BUFFER_F_IS_CLASSIFIED)))
+    {
+      vnet_buffer2 (to)->qos = vnet_buffer2 (from)->qos;
+      if (PREDICT_TRUE (from->flags & VNET_BUFFER_F_QOS_DATA_VALID))
+	{
+	  to->flags |= VNET_BUFFER_F_QOS_DATA_VALID;
+	}
+      if (PREDICT_TRUE (from->flags & VNET_BUFFER_F_IS_CLASSIFIED))
+	{
+	  to->flags |= VNET_BUFFER_F_IS_CLASSIFIED;
+	}
+    }
+#else
   if (PREDICT_TRUE (from->flags & VNET_BUFFER_F_QOS_DATA_VALID))
     {
       vnet_buffer2 (to)->qos = vnet_buffer2 (from)->qos;
       to->flags |= VNET_BUFFER_F_QOS_DATA_VALID;
     }
+#endif
 }
 
 static vlib_buffer_t *

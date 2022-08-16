@@ -20,7 +20,11 @@
  *   - Use 4789 for VxLan src port - enables full NAT traversal
  *   - Add destination port for vxlan tunnle, if remote device is behind NAT. Port is
  *     provisioned by fleximanage when creating the tunnel.
-
+ *
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
  */
 
 #include <vppinfra/error.h>
@@ -308,6 +312,15 @@ vxlan_encap_inline (vlib_main_t * vm,
 	      vnet_buffer(b0)->escape_feature_groups |= VNET_FEATURE_GROUP_NAT;
 	      vnet_buffer(b1)->escape_feature_groups |= VNET_FEATURE_GROUP_NAT;
 #endif /* #ifdef FLEXIWAN_FIX #else */
+
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification */
+	  /*
+	   * Copy qos identifiers configured for the tunnel into the packet
+	   * metadata.
+	   */
+	  vnet_buffer2 (b0)->qos.id_2 = t0->qos_hierarchy_id;
+	  vnet_buffer2 (b1)->qos.id_2 = t1->qos_hierarchy_id;
+#endif /* FLEXIWAN_FEATURE - acl_based_classification */
 	  if (csum_offload)
 	    {
 	      b0->flags |= csum_flags;
@@ -497,6 +510,14 @@ vxlan_encap_inline (vlib_main_t * vm,
 		  */
 	      vnet_buffer(b0)->escape_feature_groups |= VNET_FEATURE_GROUP_NAT;
  #endif
+
+#ifdef FLEXIWAN_FEATURE
+	  /*
+	   * Copy qos identifiers configured for the tunnel into the packet
+	   * metadata.
+	   */
+	  vnet_buffer2 (b0)->qos.id_2 = t0->qos_hierarchy_id;
+#endif
 
 	  if (csum_offload)
 	    {

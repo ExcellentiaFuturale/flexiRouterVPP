@@ -13,6 +13,14 @@
  * limitations under the License.
  */
 
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
+ */
+
 #ifndef included_acl_inlines_h
 #define included_acl_inlines_h
 
@@ -722,6 +730,31 @@ acl_plugin_match_5tuple_inline_and_count (void *p_acl_main, u32 lc_index,
 }
 
 
-
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification */
+/*
+ * The function makes required safety checks before returning the attributes of
+ * the macthing indexes
+ */
+always_inline int
+acl_plugin_get_acl_attributes_inline (void * p_acl_main, u32 acl_index,
+				      u32 rule_index, u8 * service_class,
+				      u8 * importance)
+{
+  acl_main_t * am = p_acl_main;
+  if (!pool_is_free_index (am->acls, acl_index))
+    {
+      if (rule_index < vec_len(am->acls[acl_index].rules))
+	{
+	  if (service_class)
+	    *service_class =
+	      am->acls[acl_index].rules[rule_index].service_class;
+	  if (importance)
+	    *importance = am->acls[acl_index].rules[rule_index].importance;
+	  return 0;
+	}
+    }
+  return VNET_API_ERROR_NO_SUCH_ENTRY;
+}
+#endif /* FLEXIWAN_FEATURE - acl_based_classification */
 
 #endif

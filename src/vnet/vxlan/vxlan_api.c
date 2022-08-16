@@ -24,6 +24,12 @@
  *     packets from. This is need for the FlexiWAN Multi-link feature.
  *   - Add destination port for vxlan tunnle, if remote device is behind NAT. Port is
  *     provisioned by fleximanage when creating the tunnel.
+ *
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
+ *
  */
 
 #include <vnet/vnet.h>
@@ -186,6 +192,10 @@ static void vl_api_vxlan_add_del_tunnel_t_handler
 #ifdef FLEXIWAN_FEATURE
     .dest_port = clib_net_to_host_u16 (mp->dest_port),
 #endif
+
+#ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
+    .qos_hierarchy_id = clib_net_to_host_u16 (mp->qos_hierarchy_id),
+#endif  /* FLEXIWAN_FEATURE - acl_based_classification */
   };
 
 #ifdef FLEXIWAN_FEATURE
