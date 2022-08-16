@@ -22,6 +22,11 @@
  *    back the feature to working state. Additionaly made enhancements in the
  *    context of WAN QoS needs.
  *
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *    ACL plugin. Matching ACLs provide the service class and importance
+ *    attribute. The classification result is marked in the packet and can be
+ *    made use of in other functions like scheduling, policing, marking etc.
+ * 
  * This deprecated file is enhanced and added as part of the
  * flexiwan feature - integrating_dpdk_qos_sched
  * Location of deprecated file: extras/deprecated/dpdk-hqos/hqos.c 
@@ -44,6 +49,7 @@
 #include <vnet/vnet.h>
 #include <vnet/ethernet/ethernet.h>
 #include <dpdk/device/dpdk.h>
+#include <dpdk/buffer.h>
 
 #include <vlib/pci/pci.h>
 #include <vlibmemory/api.h>
@@ -1158,6 +1164,72 @@ dpdk_hqos_metadata_set (dpdk_device_hqos_per_worker_thread_t * hqos,
 			struct rte_sched_port * port,
 			struct rte_mbuf **pkts, u32 n_pkts)
 {
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification */
+  /*
+   * If hqos_field based classification is not set, then look if
+   * classified-flag is set on the packet
+   */
+  if (PREDICT_TRUE((hqos->hqos_field0_slabmask == 0) &&
+		   (hqos->hqos_field1_slabmask == 0) &&
+		   (hqos->hqos_field2_slabmask == 0)))
+    {
+      vlib_buffer_t * b;
+      struct rte_mbuf * pkt;
+      u8 tc_q;
+      u16 subport_id;
+      u16 pipe_id;
+
+      for (u32 i = 0; i < n_pkts; i++)
+	{
+	  pkt = pkts[i];
+	  b = vlib_buffer_from_rte_mbuf (pkt);
+	  if (b->flags & VNET_BUFFER_F_IS_CLASSIFIED)
+	    {
+	      /* 
+	       * Classified packet : Make use of the marking 
+	       * 
+	       * Lookup hqos_tc_table to map the qos.bits to one of the
+	       * scheduler class and queue. tc_q returns a 6 bit value with 2
+	       * bits indicating the scheduler queue and 4 bits indicating the
+	       * scheduler class
+	       */
+	      tc_q = hqos->hqos_tc_table[vnet_buffer2 (b)->qos.bits];
+	    }
+	  else
+	    {
+	      /* Unclassified packet : Use default class and queue */
+	      tc_q = (RTE_SCHED_TRAFFIC_CLASS_BE << 2) |
+		(RTE_SCHED_BE_QUEUES_PER_PIPE - 1);
+	    }
+	  if (vnet_buffer2 (b)->qos.id_1 <
+	      hqos_params_default.port_params.n_subports_per_port)
+	    {
+	      /* Packet with subport id set */
+	      subport_id = vnet_buffer2 (b)->qos.id_1;
+	    }
+	  else
+	    {
+	      /* Packet with subport id not set - Use default */
+	      subport_id = 0;
+	    }
+	  if (vnet_buffer2 (b)->qos.id_2 <
+	      hqos_params_default.port_params.n_pipes_per_subport)
+	    {
+	      /* Packet with pipe id set */
+	      pipe_id = vnet_buffer2 (b)->qos.id_2;
+	    }
+	  else
+	    {
+	      /* Packet with pipe id not set - Use default */
+	      pipe_id = 0;
+	    }
+	  rte_sched_port_pkt_write (port, pkt, subport_id, pipe_id,
+				    (tc_q >> 2), (tc_q & 0x3), 0);
+	}
+      return;
+    }
+#endif /* FLEXIWAN_FEATURE - acl_based_classification */
+
   u32 i;
 
   for (i = 0; i < (n_pkts & (~0x3)); i += 4)

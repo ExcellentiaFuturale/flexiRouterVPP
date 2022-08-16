@@ -39,11 +39,18 @@
 
 /*
  *  Copyright (C) 2021 flexiWAN Ltd.
+ *
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - added escaping natting for flexiEdge-to-flexiEdge vxlan tunnels.
  *     These tunnels do not need NAT, so there is no need to create NAT session
  *     for them. That improves performance on multi-core machines,
  *     as NAT session are bound to the specific worker thread / core.
+ *
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
+ *
  */
 
 #ifndef included_vnet_buffer_h
@@ -55,6 +62,48 @@
  * Flags that are set in the high order bits of ((vlib_buffer*)b)->flags
  *
  */
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification */ 
+/* Adding flag to indicate if a packet has been classified or not */
+#define foreach_vnet_buffer_flag                        \
+  _( 1, L4_CHECKSUM_COMPUTED, "l4-cksum-computed", 1)	\
+  _( 2, L4_CHECKSUM_CORRECT, "l4-cksum-correct", 1)	\
+  _( 3, VLAN_2_DEEP, "vlan-2-deep", 1)			\
+  _( 4, VLAN_1_DEEP, "vlan-1-deep", 1)			\
+  _( 5, SPAN_CLONE, "span-clone", 1)                    \
+  _( 6, LOOP_COUNTER_VALID, "loop-counter-valid", 0)    \
+  _( 7, LOCALLY_ORIGINATED, "local", 1)                 \
+  _( 8, IS_IP4, "ip4", 1)                               \
+  _( 9, IS_IP6, "ip6", 1)                               \
+  _(10, OFFLOAD_IP_CKSUM, "offload-ip-cksum", 1)        \
+  _(11, OFFLOAD_TCP_CKSUM, "offload-tcp-cksum", 1)      \
+  _(12, OFFLOAD_UDP_CKSUM, "offload-udp-cksum", 1)      \
+  _(13, IS_NATED, "natted", 1)                          \
+  _(14, L2_HDR_OFFSET_VALID, "l2_hdr_offset_valid", 0)  \
+  _(15, L3_HDR_OFFSET_VALID, "l3_hdr_offset_valid", 0)  \
+  _(16, L4_HDR_OFFSET_VALID, "l4_hdr_offset_valid", 0)  \
+  _(17, FLOW_REPORT, "flow-report", 1)                  \
+  _(18, IS_DVR, "dvr", 1)                               \
+  _(19, QOS_DATA_VALID, "qos-data-valid", 0)            \
+  _(20, GSO, "gso", 0)                                  \
+  _(21, IS_CLASSIFIED, "is-classified", 1)              \
+  _(22, AVAIL1, "avail1", 1)                            \
+  _(23, AVAIL2, "avail2", 1)                            \
+  _(24, AVAIL3, "avail3", 1)                            \
+  _(25, AVAIL4, "avail4", 1)                            \
+  _(26, AVAIL5, "avail5", 1)                            \
+  _(27, AVAIL6, "avail6", 1)
+
+/*
+ * Please allocate the FIRST available bit, redefine
+ * AVAIL 1 ... AVAILn-1, and remove AVAILn. Please maintain the
+ * VNET_BUFFER_FLAGS_ALL_AVAIL definition.
+ */
+
+#define VNET_BUFFER_FLAGS_ALL_AVAIL                                     \
+  (VNET_BUFFER_F_AVAIL1 | VNET_BUFFER_F_AVAIL2 | VNET_BUFFER_F_AVAIL3 | \
+   VNET_BUFFER_F_AVAIL4 | VNET_BUFFER_F_AVAIL5 | VNET_BUFFER_F_AVAIL6)
+
+#else  /* FLEXIWAN_FEATURE - acl_based_classification */
 #define foreach_vnet_buffer_flag                        \
   _( 1, L4_CHECKSUM_COMPUTED, "l4-cksum-computed", 1)	\
   _( 2, L4_CHECKSUM_CORRECT, "l4-cksum-correct", 1)	\
@@ -95,6 +144,7 @@
    VNET_BUFFER_F_AVAIL4 | VNET_BUFFER_F_AVAIL5 | VNET_BUFFER_F_AVAIL6 | \
    VNET_BUFFER_F_AVAIL7)
 
+#endif  /* FLEXIWAN_FEATURE - acl_based_classification */
 #define VNET_BUFFER_FLAGS_VLAN_BITS \
   (VNET_BUFFER_F_VLAN_1_DEEP | VNET_BUFFER_F_VLAN_2_DEEP)
 
@@ -436,6 +486,26 @@ typedef struct
    * (nominally in the ingress path) to the marking node (in the
    * egress path)
    */
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification */
+  struct
+  {
+    /* Identifiers to idenitfy the nodes/level in a QoS / Scheduling system */
+    u16 id_1;
+    u16 id_2;
+    union {
+	struct {
+	  u8 importance:2;
+	  u8 service_class:4;
+	  u8 unused:2;
+	};
+	u8 bits;
+    };
+    u8 source;
+  } qos;
+
+  u8 loop_counter;
+  u8 __unused[5];
+#else  /* FLEXIWAN_FEATURE - acl_based_classification */
   struct
   {
     u8 bits;
@@ -444,6 +514,7 @@ typedef struct
 
   u8 loop_counter;
   u8 __unused[1];
+#endif   /* FLEXIWAN_FEATURE - acl_based_classification */
 
   /* Group Based Policy */
   struct
@@ -486,8 +557,13 @@ typedef struct
       u64 pad[1];
       u64 pg_replay_timestamp;
     };
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification */
+    u32 unused[6];
+#else   /* FLEXIWAN_FEATURE - acl_based_classification */
     u32 unused[8];
+#endif  /* FLEXIWAN_FEATURE - acl_based_classification */
   };
+
 } vnet_buffer_opaque2_t;
 
 #define vnet_buffer2(b) ((vnet_buffer_opaque2_t *) (b)->opaque2)

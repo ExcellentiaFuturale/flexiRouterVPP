@@ -20,6 +20,11 @@
  *     packets from. This is need for the FlexiWAN Multi-link feature.
  *   - Add destination port for vxlan tunnle, if remote device is behind NAT. Port is
  *     provisioned by fleximanage when creating the tunnel.
+ *
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
  */
 
 #include <vnet/vxlan/vxlan.h>
@@ -262,7 +267,17 @@ const static fib_node_vft_t vxlan_vft = {
   .fnv_back_walk = vxlan_tunnel_back_walk,
 };
 
-
+#ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
+#define foreach_copy_field                      \
+_(vni)                                          \
+_(mcast_sw_if_index)                            \
+_(encap_fib_index)                              \
+_(decap_next_index)                             \
+_(src)                                          \
+_(dst)                                          \
+_(dest_port)                                    \
+_(qos_hierarchy_id)
+#else /* FLEXIWAN_FEATURE - acl_based_classification */
 #define foreach_copy_field                      \
 _(vni)                                          \
 _(mcast_sw_if_index)                            \
@@ -271,6 +286,7 @@ _(decap_next_index)                             \
 _(src)                                          \
 _(dst)                                          \
 _(dest_port)
+#endif /* FLEXIWAN_FEATURE - acl_based_classification */
 
 static void
 vxlan_rewrite (vxlan_tunnel_t * t, bool is_ip6)
@@ -766,7 +782,12 @@ vxlan_add_del_tunnel_command_fn (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE
   u16 dest_port = 0;
 #endif
+
+#ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
+  u16 qos_hierarchy_id = 0;
+#endif  /* FLEXIWAN_FEATURE - acl_based_classification */
   u32 table_id;
+
   clib_error_t *parse_error = NULL;
 
   /* Get a line of input. */
@@ -815,6 +836,12 @@ vxlan_add_del_tunnel_command_fn (vlib_main_t * vm,
       else if (unformat (line_input, "dest_port %d", &dest_port))
   ;
 #endif
+
+#ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
+      else if (unformat (line_input, "qos-hierarchy-id %d",
+			 &qos_hierarchy_id))
+        ;
+#endif  /* FLEXIWAN_FEATURE - acl_based_classification */
       else
 	{
 	  parse_error = clib_error_return (0, "parse error: '%U'",

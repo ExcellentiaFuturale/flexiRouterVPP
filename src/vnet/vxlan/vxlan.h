@@ -25,6 +25,11 @@
  *     for them. That improves performance on multi-core machines,
  *     as NAT session are bound to the specific worker thread / core.
  *
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
+ *
  *  List of fixes made for FlexiWAN (demoted by FLEXIWAN_FIX flag):
  *  - For none vxlan packet received on port 4789, add ipx_punt node to next_nodes.
  */
@@ -164,7 +169,9 @@ typedef struct
   u32 flow_index;		/* infra flow index */
   u32 dev_instance;		/* Real device instance in tunnel vector */
   u32 user_instance;		/* Instance name being shown to user */
-
+#ifdef FLEXIWAN_FEATURE         /* acl_based_classification */
+  u16 qos_hierarchy_id;
+#endif /* FLEXIWAN_FEATURE - acl_based_classification */
     VNET_DECLARE_REWRITE;
 } vxlan_tunnel_t;
 
@@ -258,6 +265,10 @@ typedef struct
   /* adding dest port for vxlan tunnel in case destination behind NAT */
   u16 dest_port;
 #endif
+
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification */
+  u16 qos_hierarchy_id;
+#endif /* FLEXIWAN_FEATURE - acl_based_classification */
 } vnet_vxlan_add_del_tunnel_args_t;
 
 int vnet_vxlan_add_del_tunnel

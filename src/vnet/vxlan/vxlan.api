@@ -18,6 +18,11 @@
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - Add destination port for vxlan tunnel, if remote device is behind NAT. Port is
  *     provisioned by fleximanage when creating the tunnel.
+ *
+ *  - acl_based_classification: Feature to provide traffic classification using
+ *  ACL plugin. Matching ACLs provide the service class and importance
+ *  attribute. The classification result is marked in the packet and can be
+ *  made use of in other functions like scheduling, policing, marking etc.
  */
 
 option version = "2.0.0";
@@ -38,6 +43,9 @@ import "vnet/ip/ip_types.api";
     @param vni - The VXLAN Network Identifier, uint24
     @param dest_port - the destination port of the vxlan tunnel, provisioned by
                        fleximanage
+    #ifdef FLEXIWAN_FEATURE  acl_based_classification
+    @param qos_hierarchy_id - Represents the tunnel in hierarchical QoS
+    #endif FLEXIWAN_FEATURE - acl_based_classification
 */
 define vxlan_add_del_tunnel
 {
@@ -54,6 +62,7 @@ define vxlan_add_del_tunnel
   u32 next_hop_sw_if_index;
   vl_api_address_t next_hop_ip;
   u16 dest_port;
+  u16 qos_hierarchy_id;
 };
 
 define vxlan_add_del_tunnel_reply
