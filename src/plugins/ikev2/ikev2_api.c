@@ -22,6 +22,10 @@
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - Enable user to specify gateway that should be used for IKE traffic.
  *     This is needed for FlexiWAN multi-link policy feature on multi-WAN devices.
+ *
+ *   - configurable_esn_and_replay_check : Add support to make Extended
+ *     Sequence Number (ESN) and ESP replay check functions configurable
+ *     via API/CLI
  */
 
 #include <vnet/vnet.h>
@@ -80,6 +84,9 @@ cp_esp_transforms (vl_api_ikev2_esp_transforms_t * vl_api_ts,
   vl_api_ts->crypto_alg = ts->crypto_alg;
   vl_api_ts->integ_alg = ts->integ_alg;
   vl_api_ts->crypto_key_size = ts->crypto_key_size;
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+  vl_api_ts->esn_type = ts->esn_type;
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 }
 
 static void
@@ -171,6 +178,9 @@ send_profile (ikev2_profile_t * profile, vl_api_registration_t * reg,
   rmp->profile.udp_encap = profile->udp_encap;
   rmp->profile.tun_itf = profile->tun_itf;
   rmp->profile.natt_disabled = profile->natt_disabled;
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+  rmp->profile.replay_check = profile->replay_check;
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   rmp->profile.ipsec_over_udp_port = profile->ipsec_over_udp_port;
 #ifdef FLEXIWAN_FEATURE
   ip46_type_t type = (profile->gw.frp_proto==DPO_PROTO_IP4) ? IP46_TYPE_IP4 : IP46_TYPE_IP6;
@@ -746,10 +756,18 @@ vl_api_ikev2_set_esp_transforms_t_handler (vl_api_ikev2_set_esp_transforms_t *
 
   u8 *tmp = format (0, "%s", mp->name);
 
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+  error =
+    ikev2_set_profile_esp_transforms (vm, tmp, mp->tr.crypto_alg,
+				      mp->tr.integ_alg,
+				      ntohl (mp->tr.crypto_key_size),
+				      mp->tr.esn_type);
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   error =
     ikev2_set_profile_esp_transforms (vm, tmp, mp->tr.crypto_alg,
 				      mp->tr.integ_alg,
 				      ntohl (mp->tr.crypto_key_size));
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   vec_free (tmp);
   if (error)
     {
@@ -981,6 +999,30 @@ static void
 
   REPLY_MACRO (VL_API_IKEV2_PROFILE_DISABLE_NATT_REPLY);
 }
+
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+static void
+  vl_api_ikev2_profile_replay_check_update_t_handler
+  (vl_api_ikev2_profile_replay_check_update_t * mp)
+{
+  vl_api_ikev2_profile_replay_check_update_reply_t *rmp;
+  int rv = 0;
+
+  clib_error_t *error;
+
+  u8 *tmp = format (0, "%s", mp->name);
+  error = ikev2_profile_replay_check_update (tmp, mp->enable);
+  vec_free (tmp);
+  if (error)
+    {
+      ikev2_log_error ("%U", format_clib_error, error);
+      clib_error_free (error);
+      rv = VNET_API_ERROR_UNSPECIFIED;
+    }
+
+  REPLY_MACRO (VL_API_IKEV2_PROFILE_REPLAY_CHECK_UPDATE_REPLY);
+}
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 
 static void
   vl_api_ikev2_initiate_rekey_child_sa_t_handler

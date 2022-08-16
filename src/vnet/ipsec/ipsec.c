@@ -15,6 +15,14 @@
  * limitations under the License.
  */
 
+/*
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *
+ *   - fix_crypto_worker_assignment : Crypto worker thread assignment need to
+ *   include only the cpu.corelist-workers and exclude feature-specific worker
+ *   threads like cpu.corelist-hqos-threads
+ */
+
 #include <vnet/vnet.h>
 #include <vnet/api_errno.h>
 #include <vnet/ip/ip.h>
@@ -570,6 +578,20 @@ ipsec_init (vlib_main_t * vm)
   im->async_mode = 0;
   crypto_engine_backend_register_post_node (vm);
 
+#ifdef FLEXIWAN_FIX /* fix_crypto_worker_assignment */
+  vlib_thread_main_t *tm = vlib_get_thread_main ();
+  uword *threads = hash_get_mem (tm->thread_registrations_by_name, "workers");
+  if (threads)
+    {
+      vlib_thread_registration_t *worker;
+      worker = (vlib_thread_registration_t *) threads[0];
+      if (worker)
+        {
+          im->first_worker_index = worker->first_index;
+          im->num_workers = worker->count;
+        }
+    }
+#endif  /* FLEXIWAN_FIX - fix_crypto_worker_assignment */
   return 0;
 }
 

@@ -17,6 +17,13 @@
  *------------------------------------------------------------------
  */
 
+/*  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable_esn_and_replay_check : Add support to make Extended
+ *     Sequence Number (ESN) and ESP replay check functions configurable
+ *     via API/CLI
+ */
+
 #include <vat/vat.h>
 #include <vlibapi/api.h>
 #include <vlibmemory/api.h>
@@ -233,6 +240,63 @@ api_ikev2_profile_disable_natt (vat_main_t * vam)
   return ret;
 }
 
+
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+static int
+api_ikev2_profile_replay_check_update (vat_main_t * vam)
+{
+  unformat_input_t *i = vam->input;
+  vl_api_ikev2_profile_replay_check_update_t *mp;
+  u8 *name = 0;
+  u32 enable = ~0;
+  int ret;
+
+  while (unformat_check_input (i) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (i, "name %U", unformat_token, valid_chars, &name))
+	vec_add1 (name, 0);
+      else if (unformat (i, "on"))
+	enable = 1;
+      else if (unformat (i, "off"))
+	enable = 0;
+      else
+	{
+	  errmsg ("parse error '%U'", format_unformat_error, i);
+	  return -99;
+	}
+    }
+
+  if (!vec_len (name))
+    {
+      errmsg ("profile name must be specified");
+      return -99;
+    }
+
+  if (vec_len (name) > 64)
+    {
+      errmsg ("profile name too long");
+      return -99;
+    }
+
+  if (enable == ~0)
+    {
+      errmsg ("replay check input must be specified");
+      return -99;
+    }
+
+
+  M (IKEV2_PROFILE_REPLAY_CHECK_UPDATE, mp);
+
+  clib_memcpy (mp->name, name, vec_len (name));
+  vec_free (name);
+  mp->enable = enable;
+
+  S (mp);
+  W (ret);
+  return ret;
+}
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+
 static int
 api_ikev2_profile_dump (vat_main_t * vam)
 {
@@ -325,6 +389,13 @@ static void vl_api_ikev2_profile_details_t_handler
   if (p->natt_disabled)
     fformat (vam->ofp, "  NAT-T disabled\n");
 
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+    if (p->replay_check)
+      fformat(vam->ofp, "  Replay check On");
+    else
+      fformat(vam->ofp, "  Replay check Off");
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+
   u32 ipsec_over_udp_port = clib_net_to_host_u16 (p->ipsec_over_udp_port);
   if (ipsec_over_udp_port != IPSEC_UDP_PORT_NONE)
     fformat (vam->ofp, "  ipsec-over-udp port %d\n", ipsec_over_udp_port);
@@ -339,11 +410,20 @@ static void vl_api_ikev2_profile_details_t_handler
 	     p->ike_ts.dh_group);
 
   crypto_key_size = clib_net_to_host_u32 (p->esp_ts.crypto_key_size);
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+  if (p->esp_ts.crypto_alg || p->esp_ts.integ_alg || p->esp_ts.esn_type)
+    fformat (vam->ofp, "  esp-crypto-alg %U %u esp-integ-alg %U esn %U\n",
+	     format_ikev2_transform_encr_type, p->esp_ts.crypto_alg,
+	     crypto_key_size,
+	     format_ikev2_transform_integ_type, p->esp_ts.integ_alg,
+	     format_ikev2_transform_esn_type, p->esp_ts.esn_type);
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   if (p->esp_ts.crypto_alg || p->esp_ts.integ_alg)
     fformat (vam->ofp, "  esp-crypto-alg %U %u esp-integ-alg %U\n",
 	     format_ikev2_transform_encr_type, p->esp_ts.crypto_alg,
 	     crypto_key_size,
 	     format_ikev2_transform_integ_type, p->esp_ts.integ_alg);
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 
   fformat (vam->ofp, "  lifetime %d jitter %d handover %d maxdata %d\n",
 	   clib_net_to_host_u64 (p->lifetime),
@@ -1172,11 +1252,19 @@ api_ikev2_set_esp_transforms (vat_main_t * vam)
   int ret;
   u8 *name = 0;
   u32 crypto_alg, crypto_key_size, integ_alg;
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+  u8 esn_type;
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 
   while (unformat_check_input (i) != UNFORMAT_END_OF_INPUT)
     {
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+      if (unformat (i, "%U %d %d %d %u", unformat_token, valid_chars, &name,
+		    &crypto_alg, &crypto_key_size, &integ_alg, &esn_type))
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
       if (unformat (i, "%U %d %d %d", unformat_token, valid_chars, &name,
 		    &crypto_alg, &crypto_key_size, &integ_alg))
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 	vec_add1 (name, 0);
       else
 	{
@@ -1204,6 +1292,9 @@ api_ikev2_set_esp_transforms (vat_main_t * vam)
   mp->tr.crypto_alg = crypto_alg;
   mp->tr.crypto_key_size = clib_host_to_net_u32 (crypto_key_size);
   mp->tr.integ_alg = integ_alg;
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+  mp->tr.esn_type = esn_type;
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 
   S (mp);
   W (ret);

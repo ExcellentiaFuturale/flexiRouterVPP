@@ -20,6 +20,10 @@
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - Enable user to specify gateway that should be used for IKE traffic.
  *     This is needed for FlexiWAN multi-link policy feature on multi-WAN devices.
+ *
+ *   - configurable_esn_and_replay_check : Add support to make Extended
+ *     Sequence Number (ESN) and ESP replay check functions configurable
+ *     via API/CLI
  */
 
 #include <vlib/vlib.h>
@@ -328,6 +332,9 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
   ikev2_transform_encr_type_t crypto_alg;
   ikev2_transform_integ_type_t integ_alg;
   ikev2_transform_dh_type_t dh_type;
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
+  ikev2_transform_esn_type_t esn_type;
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 #ifdef FLEXIWAN_FEATURE
   fib_route_path_t gw;
 #endif
@@ -497,6 +504,21 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
 	  goto done;
 	}
       else
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
+	if (unformat
+	    (line_input,
+	     "set %U esp-crypto-alg %U %u esp-integ-alg %U esn %U",
+	     unformat_ikev2_token, &name,
+	     unformat_ikev2_transform_encr_type, &crypto_alg, &tmp1,
+	     unformat_ikev2_transform_integ_type, &integ_alg,
+	     unformat_ikev2_transform_esn_type, &esn_type))
+	{
+	  r =
+	    ikev2_set_profile_esp_transforms (vm, name, crypto_alg, integ_alg,
+					      tmp1, esn_type);
+	  goto done;
+	}
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 	if (unformat
 	    (line_input,
 	     "set %U esp-crypto-alg %U %u esp-integ-alg %U",
@@ -509,6 +531,7 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
 					      tmp1);
 	  goto done;
 	}
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
       else if (unformat
 	       (line_input,
 		"set %U esp-crypto-alg %U %u",
@@ -516,7 +539,12 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
 		unformat_ikev2_transform_encr_type, &crypto_alg, &tmp1))
 	{
 	  r =
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
+	    ikev2_set_profile_esp_transforms (vm, name, crypto_alg, 0, tmp1,
+					      0);
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 	    ikev2_set_profile_esp_transforms (vm, name, crypto_alg, 0, tmp1);
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 	  goto done;
 	}
       else if (unformat (line_input, "set %U sa-lifetime %lu %u %u %lu",
@@ -551,6 +579,21 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
 	  goto done;
 	}
 #endif
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
+      else if (unformat (line_input, "set %U replay-check on",
+			 unformat_ikev2_token, &name))
+	{
+	  r = ikev2_profile_replay_check_update (name, 1);
+	  goto done;
+	}
+      else if (unformat (line_input, "set %U replay-check off",
+			 unformat_ikev2_token, &name))
+	{
+	  r = ikev2_profile_replay_check_update (name, 0);
+	  goto done;
+	}
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+
       else if (unformat (line_input, "set %U disable natt",
 			 unformat_ikev2_token, &name))
 	{
@@ -586,9 +629,14 @@ VLIB_CLI_COMMAND (ikev2_profile_add_del_command, static) = {
     "protocol <protocol-number>\n"
     "ikev2 profile set <id> responder <interface> <addr>\n"
     "ikev2 profile set <id> ike-crypto-alg <crypto alg> <key size> ike-integ-alg <integ alg> ike-dh <dh type>\n"
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
+    "ikev2 profile set <id> esp-crypto-alg <crypto alg> <key size> [esp-integ-alg <integ alg>] [esn <yes|no>]\n"
+    "ikev2 profile set <id> replay-check <on|off>\n"
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
     "ikev2 profile set <id> esp-crypto-alg <crypto alg> <key size> "
       "[esp-integ-alg <integ alg>]\n"
-    "ikev2 profile set <id> sa-lifetime <seconds> <jitter> <handover> <max bytes>"
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+    "ikev2 profile set <id> sa-lifetime <seconds> <jitter> <handover> <max bytes>\n"
     "ikev2 profile set <id> disable natt\n",
     .function = ikev2_profile_add_del_command_fn,
 };
@@ -651,6 +699,12 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
     if (p->natt_disabled)
       vlib_cli_output(vm, "  NAT-T disabled");
 
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
+    if (p->replay_check)
+      vlib_cli_output(vm, "  Replay check On");
+    else
+      vlib_cli_output(vm, "  Replay check Off");
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
     if (p->ipsec_over_udp_port != IPSEC_UDP_PORT_NONE)
       vlib_cli_output(vm, "  ipsec-over-udp port %d", p->ipsec_over_udp_port);
 
@@ -660,10 +714,19 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
                     format_ikev2_transform_integ_type, p->ike_ts.integ_alg,
                     format_ikev2_transform_dh_type, p->ike_ts.dh_type);
 
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
+    if (p->esp_ts.crypto_alg || p->esp_ts.integ_alg || p->esp_ts.dh_type ||
+	p->esp_ts.esn_type)
+      vlib_cli_output(vm, "  esp-crypto-alg %U %u esp-integ-alg %U esn %U",
+                    format_ikev2_transform_encr_type, p->esp_ts.crypto_alg, p->esp_ts.crypto_key_size,
+                    format_ikev2_transform_integ_type, p->esp_ts.integ_alg,
+                    format_ikev2_transform_esn_type, p->esp_ts.esn_type);
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
     if (p->esp_ts.crypto_alg || p->esp_ts.integ_alg || p->esp_ts.dh_type)
       vlib_cli_output(vm, "  esp-crypto-alg %U %u esp-integ-alg %U",
                     format_ikev2_transform_encr_type, p->esp_ts.crypto_alg, p->esp_ts.crypto_key_size,
                     format_ikev2_transform_integ_type, p->esp_ts.integ_alg);
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 
     vlib_cli_output(vm, "  lifetime %d jitter %d handover %d maxdata %d",
                     p->lifetime, p->lifetime_jitter, p->handover, p->lifetime_maxdata);

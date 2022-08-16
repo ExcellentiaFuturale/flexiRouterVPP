@@ -12,6 +12,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *
+ *   - fix_crypto_worker_assignment : Crypto worker thread assignment need to
+ *   include only the cpu.corelist-workers and exclude feature-specific worker
+ *   threads like cpu.corelist-hqos-threads
+ */
+
 #ifndef __IPSEC_H__
 #define __IPSEC_H__
 
@@ -205,6 +214,10 @@ typedef struct
   u32 esp6_dec_tun_fq_index;
 
   u8 async_mode;
+#ifdef FLEXIWAN_FIX  /* fix_crypto_worker_assignment */
+  u32 first_worker_index;
+  u32 num_workers;
+#endif/* FLEXIWAN_FIX - fix_crypto_worker_assignment */
 } ipsec_main_t;
 
 typedef enum ipsec_format_flags_t_
