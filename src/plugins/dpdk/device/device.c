@@ -12,6 +12,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
+ *    currently in deprecated state. It is likely deprecated as changes
+ *    in DPDK scheduler APIs required corresponding changes from VPP side.
+ *    The FlexiWAN commit makes the required corresponding changes and brings
+ *    back the feature to working state. Additionaly made enhancements in the
+ *    context of WAN QoS needs.
+ */
+
 #include <vnet/vnet.h>
 #include <vppinfra/vec.h>
 #include <vppinfra/format.h>
@@ -171,7 +182,24 @@ static_always_inline
     {
       clib_spinlock_lock_if_init (&txq->lock);
 
+#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
+      /* if hqos enabled, Enqueue packet to the DPDK HQoS thread queue */
+      if (PREDICT_FALSE (xd->flags & DPDK_DEVICE_FLAG_HQOS))    /* HQoS ON */
+        {
+          /* no wrap, transmit in one burst */
+          dpdk_device_hqos_per_worker_thread_t *hqos =
+            &xd->hqos_wt[vm->thread_index];
+
+          ASSERT (hqos->swq != NULL);
+
+          dpdk_hqos_metadata_set (hqos, xd->hqos_ht->hqos, mb, n_left);
+          n_sent = rte_ring_sp_enqueue_burst (hqos->swq, (void **) mb,
+                                              n_left, 0);
+        }
+      else if (PREDICT_TRUE (xd->flags & DPDK_DEVICE_FLAG_PMD))
+#else     /* integrating_dpdk_qos_sched */
       if (PREDICT_TRUE (xd->flags & DPDK_DEVICE_FLAG_PMD))
+#endif /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 	{
 	  /* no wrap, transmit in one burst */
 	  n_sent = rte_eth_tx_burst (xd->port_id, queue_id, mb, n_left);

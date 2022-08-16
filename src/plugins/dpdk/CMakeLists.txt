@@ -11,6 +11,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+#  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
+#  currently in deprecated state. It is likely deprecated as changes in
+#  DPDK scheduler APIs required corresponding changes from VPP side.
+#  The FlexiWAN commit makes the required corresponding changes and brings back
+#  the feature to working state. Additionaly made enhancements in the context
+#  of WAN QoS needs.
+
 ##############################################################################
 # Find lib and include files
 ##############################################################################
@@ -111,11 +119,14 @@ else ()
   set(DPDK_CRYPTODEV_SOURCE cryptodev)
 endif ()
 
+#FLEXIWAN_FEATURE - integrating_dpdk_qos_sched
+#Changes: Added files api/dpdk_api.c  hqos/hqos.c  api/dpdk.api
 add_vpp_plugin(dpdk
   SOURCES
   buffer.c
   main.c
   thread.c
+  api/dpdk_api.c
   device/cli.c
   device/common.c
   device/device.c
@@ -123,6 +134,7 @@ add_vpp_plugin(dpdk
   device/format.c
   device/init.c
   device/node.c
+  hqos/hqos.c
   ipsec/cli.c
   ipsec/crypto_node.c
   ipsec/esp_decrypt.c
@@ -137,6 +149,9 @@ add_vpp_plugin(dpdk
   ipsec/crypto_node.c
   ipsec/esp_decrypt.c
   ipsec/esp_encrypt.c
+
+  API_FILES
+  api/dpdk.api
 
   INSTALL_HEADERS
   device/dpdk.h
