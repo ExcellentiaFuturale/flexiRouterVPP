@@ -1360,16 +1360,27 @@ show_dpdk_if_hqos (vlib_main_t * vm, unformat_input_t * input,
   u32 subport_id, i;
   uword *p = 0;
   u32 hw_if_index = ~0;
+  u32 *hw_if_indexes = NULL;
+  dpdk_device_and_queue_t *dq;
 
-  if (!unformat_user (input, unformat_line_input, line_input))
-    return 0;
-
-  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+  if (unformat_user (input, unformat_line_input, line_input))
     {
-      if (unformat
-	  (line_input, "%U", unformat_vnet_hw_interface, dm->vnet_main,
-	   &hw_if_index))
-	;
+      if (unformat (line_input, "%U", unformat_vnet_hw_interface,
+                    dm->vnet_main, &hw_if_index))
+	{
+	  u32 *if_index;
+	  for (u32 cpu = 0; cpu < vec_len (dm->devices_by_hqos_cpu); cpu++)
+	    {
+	      vec_foreach (dq, dm->devices_by_hqos_cpu[cpu])
+		{
+		  if (hw_if_index == dm->devices[dq->device].hw_if_index)
+		    {
+		      vec_add2 (hw_if_indexes, if_index, 1);
+		      *if_index = hw_if_index;
+		    }
+		}
+	    }
+	}
       else
 	{
 	  error = clib_error_return (0, "parse error: '%U'",
@@ -1377,16 +1388,17 @@ show_dpdk_if_hqos (vlib_main_t * vm, unformat_input_t * input,
 	  goto done;
 	}
     }
-
-  error = dpdk_hqos_get_intf_context (hw_if_index, &xd, &devconf);
-  if (error)
+  else
     {
-      goto done;
-    }
-  if ((xd->flags & DPDK_DEVICE_FLAG_HQOS) == 0)
-    {
-      error = clib_error_return (0, "hqos not enabled on interface");
-      goto done;
+      for (u32 cpu = 0; cpu < vec_len (dm->devices_by_hqos_cpu); cpu++)
+	{
+	  vec_foreach (dq, dm->devices_by_hqos_cpu[cpu])
+	    {
+	      u32 *if_index;
+	      vec_add2 (hw_if_indexes, if_index, 1);
+	      *if_index = dm->devices[dq->device].hw_if_index;
+	    }
+	}
     }
 
   // Detect the set of worker threads
@@ -1397,166 +1409,192 @@ show_dpdk_if_hqos (vlib_main_t * vm, unformat_input_t * input,
       error = clib_error_return (0, "no worker registrations?");
       goto done;
     }
-
   vlib_thread_registration_t *tr = (vlib_thread_registration_t *) p[0];
-  dpdk_device_config_hqos_t *cfg = &devconf->hqos;
-  dpdk_device_hqos_per_hqos_thread_t *ht = xd->hqos_ht;
-  dpdk_device_hqos_per_worker_thread_t *wk = &xd->hqos_wt[tr->first_index];
-  u32 *tctbl = wk->hqos_tc_table;
 
-  struct rte_sched_port_params * port_params = &cfg->port_params;
-  struct rte_sched_subport_profile_params * subport_profiles =
-    port_params->subport_profiles;
-  struct rte_sched_subport_params * subport_params = cfg->subport_params;
-  u32 * subport_profile_id_map = cfg->subport_profile_id_map;
-
-
-  vlib_cli_output (vm, " Thread:");
-  vlib_cli_output (vm, "   Input SWQ size = %u packets", cfg->swq_size);
-  vlib_cli_output (vm, "   Enqueue burst size = %u packets",
-		   ht->hqos_burst_enq);
-  vlib_cli_output (vm, "   Dequeue burst size = %u packets",
-		   ht->hqos_burst_deq);
-
-  vlib_cli_output (vm,
-		   "   Packet field 0: slab position = %4u, slab bitmask = "
-		   "0x%016llx   (subport)",
-		   wk->hqos_field0_slabpos, wk->hqos_field0_slabmask);
-  vlib_cli_output (vm,
-		   "   Packet field 1: slab position = %4u, slab bitmask = "
-		   "0x%016llx   (pipe)",
-		   wk->hqos_field1_slabpos, wk->hqos_field1_slabmask);
-  vlib_cli_output (vm,
-		   "   Packet field 2: slab position = %4u, slab bitmask = "
-		   "0x%016llx   (tc)",
-		   wk->hqos_field2_slabpos, wk->hqos_field2_slabmask);
-  vlib_cli_output (vm,
-		   "   Packet field 2  tc translation table: "
-		   "([Mapped Value Range]: tc/queue tc/queue ...)");
-  for (i = 0; i < 8; i++)
+  u32 *if_index;
+  vec_foreach (if_index, hw_if_indexes)
     {
-      int idx = i * 8;
-      vlib_cli_output (vm,
-		       "     [ %u .. %u]: "
-		       "%u/%u %u/%u %u/%u %u/%u %u/%u %u/%u %u/%u %u/%u",
-		       idx, idx + (8 - 1),
-		       tctbl[idx] >> 2, tctbl[idx] & 0x3,
-		       tctbl[idx + 1] >> 2, tctbl[idx + 1] & 0x3,
-		       tctbl[idx + 2] >> 2, tctbl[idx + 2] & 0x3,
-		       tctbl[idx + 3] >> 2, tctbl[idx + 3] & 0x3,
-		       tctbl[idx + 4] >> 2, tctbl[idx + 4] & 0x3,
-		       tctbl[idx + 5] >> 2, tctbl[idx + 5] & 0x3,
-		       tctbl[idx + 6] >> 2, tctbl[idx + 6] & 0x3,
-		       tctbl[idx + 7] >> 2, tctbl[idx + 7] & 0x3);
-    }
-  vlib_cli_output (vm, " Port:");
-  vlib_cli_output (vm, "   Rate = %u bytes/second", port_params->rate);
-  vlib_cli_output (vm, "   MTU = %u bytes", port_params->mtu);
-  vlib_cli_output (vm, "   Frame overhead = %u bytes",
-		   port_params->frame_overhead);
-  vlib_cli_output (vm, "   Max number of subports = %u",
-		   port_params->n_subports_per_port);
-  vlib_cli_output (vm, "   Max number of pipes per subport = %u",
-		   port_params->n_pipes_per_subport);
-  vlib_cli_output (vm, "   Max number of subport profiles = %u",
-		   port_params->n_max_subport_profiles);
-  vlib_cli_output (vm, "   Configured number of subport profiles = %u",
-		   port_params->n_subport_profiles);
-
-  for (subport_id = 0; subport_id < vec_len (subport_params); subport_id++)
-    {
-      u32 subport_profile_id = subport_profile_id_map[subport_id];
-      vlib_cli_output (vm, " Subport %u: (Profile id: %u)", subport_id,
-		       subport_profile_id);
-      vlib_cli_output (vm, "   Rate = %u bytes/second",
-		       subport_profiles[subport_profile_id].tb_rate);
-      vlib_cli_output (vm, "   Token bucket size = %u bytes",
-		       subport_profiles[subport_profile_id].tb_size);
-
-      for (i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++)
+      error = dpdk_hqos_get_intf_context (*if_index, &xd, &devconf);
+      if (error)
 	{
-#ifdef RTE_SCHED_RED
-	  struct rte_red_params * red_params =
-	    &subport_params[subport_id].red_params[i][0];
-#endif
-	  vlib_cli_output (vm,
-			   "   Traffic class rate: TC[%u] = %u bytes/second ",
-			   i, subport_profiles[subport_profile_id].tc_rate[i]);
-	  vlib_cli_output (vm,
-			   "     Packet queue size: TC[%u] = %u packets",
-			   i, subport_params[subport_id].qsize[i]);
-
-#ifdef RTE_SCHED_RED
-	  vlib_cli_output (vm, "     Weighted Random Early Detection (WRED):");
-	  vlib_cli_output (vm, "     TC%u min: G = %u, Y = %u, R = %u", i,
-			   red_params[RTE_COLOR_GREEN].min_th,
-			   red_params[RTE_COLOR_YELLOW].min_th,
-			   red_params[RTE_COLOR_RED].min_th);
-
-	  vlib_cli_output (vm, "     TC%u max: G = %u, Y = %u, R = %u", i,
-			   red_params[RTE_COLOR_GREEN].max_th,
-			   red_params[RTE_COLOR_YELLOW].max_th,
-			   red_params[RTE_COLOR_RED].max_th);
-
-	  vlib_cli_output (vm,
-			   "     TC%u inv probability: G = %u, Y = %u, R = %u",
-			   i,
-			   red_params[RTE_COLOR_GREEN].maxp_inv,
-			   red_params[RTE_COLOR_YELLOW].maxp_inv,
-			   red_params[RTE_COLOR_RED].maxp_inv);
-
-	  vlib_cli_output (vm, "     TC%u weight: R = %u, Y = %u, R = %u", i,
-			   red_params[RTE_COLOR_GREEN].wq_log2,
-			   red_params[RTE_COLOR_YELLOW].wq_log2,
-			   red_params[RTE_COLOR_RED].wq_log2);
-#endif
+	  goto done;
 	}
-      vlib_cli_output (vm, "   TC period = %u milliseconds",
-		       subport_profiles[subport_profile_id].tc_period);
-      vlib_cli_output (vm, "   Max number of pipes = %u",
-		       subport_params[subport_id].n_pipes_per_subport_enabled);
-      vlib_cli_output (vm, "   Max number of pipe profiles = %u",
-		       subport_params[subport_id].n_max_pipe_profiles);
-      vlib_cli_output (vm, "   Configured number of pipe profiles = %u",
-		       subport_params[subport_id].n_pipe_profiles);
-
-      for (int pipe_id = 0; pipe_id < cfg->pipes[subport_id]; pipe_id++)
+      if ((xd->flags & DPDK_DEVICE_FLAG_HQOS) == 0)
 	{
-	  u32 pipe_profile_id = cfg->pipe_profile_id_map[subport_id][pipe_id];
-	  struct rte_sched_pipe_params * pipe_profiles =
-	    subport_params[subport_id].pipe_profiles;
+	  error = clib_error_return (0, "hqos not enabled on interface");
+	  goto done;
+	}
 
-	  vlib_cli_output (vm, " Pipe %u: (Profile id: %u)", pipe_id,
-			   pipe_profile_id);
+      vnet_hw_interface_t *hi =
+	vnet_get_hw_interface (dm->vnet_main, *if_index);
+      vlib_cli_output (vm, "Interface  %v sw_if_index: %u",
+		       hi->name, *if_index);
+      dpdk_device_config_hqos_t *cfg = &devconf->hqos;
+      dpdk_device_hqos_per_hqos_thread_t *ht = xd->hqos_ht;
+      dpdk_device_hqos_per_worker_thread_t *wk = &xd->hqos_wt[tr->first_index];
+      u32 *tctbl = wk->hqos_tc_table;
+
+      struct rte_sched_port_params * port_params = &cfg->port_params;
+      struct rte_sched_subport_profile_params * subport_profiles =
+	port_params->subport_profiles;
+      struct rte_sched_subport_params * subport_params = cfg->subport_params;
+      u32 * subport_profile_id_map = cfg->subport_profile_id_map;
+
+
+      vlib_cli_output (vm, " Thread:");
+      vlib_cli_output (vm, "   Input SWQ size = %u packets", cfg->swq_size);
+      vlib_cli_output (vm, "   Enqueue burst size = %u packets",
+		       ht->hqos_burst_enq);
+      vlib_cli_output (vm, "   Dequeue burst size = %u packets",
+		       ht->hqos_burst_deq);
+
+      vlib_cli_output (vm,
+		       "   Packet field 0: slab position = %4u, slab bitmask ="
+		       " 0x%016llx   (subport)",
+		       wk->hqos_field0_slabpos, wk->hqos_field0_slabmask);
+      vlib_cli_output (vm,
+		       "   Packet field 1: slab position = %4u, slab bitmask ="
+		       " 0x%016llx   (pipe)",
+		       wk->hqos_field1_slabpos, wk->hqos_field1_slabmask);
+      vlib_cli_output (vm,
+		       "   Packet field 2: slab position = %4u, slab bitmask ="
+		       " 0x%016llx   (tc)",
+		       wk->hqos_field2_slabpos, wk->hqos_field2_slabmask);
+      vlib_cli_output (vm,
+		       "   Packet field 2  tc translation table: "
+		       "([Mapped Value Range]: tc/queue tc/queue ...)");
+      for (i = 0; i < 8; i++)
+	{
+	  int idx = i * 8;
+	  vlib_cli_output (vm,
+			   "     [ %u .. %u]: "
+			   "%u/%u %u/%u %u/%u %u/%u %u/%u %u/%u %u/%u %u/%u",
+			   idx, idx + (8 - 1),
+			   tctbl[idx] >> 2, tctbl[idx] & 0x3,
+			   tctbl[idx + 1] >> 2, tctbl[idx + 1] & 0x3,
+			   tctbl[idx + 2] >> 2, tctbl[idx + 2] & 0x3,
+			   tctbl[idx + 3] >> 2, tctbl[idx + 3] & 0x3,
+			   tctbl[idx + 4] >> 2, tctbl[idx + 4] & 0x3,
+			   tctbl[idx + 5] >> 2, tctbl[idx + 5] & 0x3,
+			   tctbl[idx + 6] >> 2, tctbl[idx + 6] & 0x3,
+			   tctbl[idx + 7] >> 2, tctbl[idx + 7] & 0x3);
+	}
+      vlib_cli_output (vm, " Port:");
+      vlib_cli_output (vm, "   Rate = %u bytes/second", port_params->rate);
+      vlib_cli_output (vm, "   MTU = %u bytes", port_params->mtu);
+      vlib_cli_output (vm, "   Frame overhead = %u bytes",
+		       port_params->frame_overhead);
+      vlib_cli_output (vm, "   Max number of subports = %u",
+		       port_params->n_subports_per_port);
+      vlib_cli_output (vm, "   Max number of pipes per subport = %u",
+		       port_params->n_pipes_per_subport);
+      vlib_cli_output (vm, "   Max number of subport profiles = %u",
+		       port_params->n_max_subport_profiles);
+      vlib_cli_output (vm, "   Configured number of subport profiles = %u",
+		       port_params->n_subport_profiles);
+
+      for (subport_id = 0; subport_id < vec_len (subport_params); subport_id++)
+	{
+	  u32 subport_profile_id = subport_profile_id_map[subport_id];
+	  vlib_cli_output (vm, " Subport %u: (Profile id: %u)", subport_id,
+			   subport_profile_id);
 	  vlib_cli_output (vm, "   Rate = %u bytes/second",
-			   pipe_profiles[pipe_profile_id].tb_rate);
+			   subport_profiles[subport_profile_id].tb_rate);
 	  vlib_cli_output (vm, "   Token bucket size = %u bytes",
-			   pipe_profiles[pipe_profile_id].tb_size);
-	  vlib_cli_output (vm, "   TC period = %u milliseconds",
-			   pipe_profiles[pipe_profile_id].tc_period);
-#ifdef RTE_SCHED_SUBPORT_TC_OV
-	  vlib_cli_output (vm, "   TC oversubscription_weight = %u",
-			   pipe_profiles[pipe_profile_id].tc_ov_weight);
-#endif
+			   subport_profiles[subport_profile_id].tb_size);
+
 	  for (i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++)
 	    {
+#ifdef RTE_SCHED_RED
+	      struct rte_red_params * red_params =
+		&subport_params[subport_id].red_params[i][0];
+#endif
 	      vlib_cli_output (vm,
-			       "   Traffic class rate: TC[%u] = %u "
-			       "bytes/second", i,
-			       pipe_profiles[pipe_profile_id].tc_rate[i]);
-	    }
-	  vlib_cli_output (vm,
-			   "   Best Effort TC WRR weights: Q0 = %u, "
-			   "Q1 = %u, Q2 = %u, Q3 = %u",
-			   pipe_profiles[pipe_profile_id].wrr_weights[0],
-			   pipe_profiles[pipe_profile_id].wrr_weights[1],
-			   pipe_profiles[pipe_profile_id].wrr_weights[2],
-			   pipe_profiles[pipe_profile_id].wrr_weights[3]);
-	}
-    }
+			       "   Traffic class rate: TC[%u] ="
+			       " %u bytes/second ", i,
+			       subport_profiles[subport_profile_id].tc_rate[i]);
+	      vlib_cli_output (vm,
+			       "     Packet queue size: TC[%u] = %u packets",
+			       i, subport_params[subport_id].qsize[i]);
 
+#ifdef RTE_SCHED_RED
+	      vlib_cli_output (vm, "     Weighted Random Early Detection"
+			       " (WRED):");
+	      vlib_cli_output (vm, "     TC%u min: G = %u, Y = %u, R = %u", i,
+			       red_params[RTE_COLOR_GREEN].min_th,
+			       red_params[RTE_COLOR_YELLOW].min_th,
+			       red_params[RTE_COLOR_RED].min_th);
+
+	      vlib_cli_output (vm, "     TC%u max: G = %u, Y = %u, R = %u", i,
+			       red_params[RTE_COLOR_GREEN].max_th,
+			       red_params[RTE_COLOR_YELLOW].max_th,
+			       red_params[RTE_COLOR_RED].max_th);
+
+	      vlib_cli_output (vm,
+			       "     TC%u inv probability:"
+			       " G = %u, Y = %u, R = %u",
+			       i,
+			       red_params[RTE_COLOR_GREEN].maxp_inv,
+			       red_params[RTE_COLOR_YELLOW].maxp_inv,
+			       red_params[RTE_COLOR_RED].maxp_inv);
+
+	      vlib_cli_output (vm, "     TC%u weight: R = %u, Y = %u, R = %u", i,
+			       red_params[RTE_COLOR_GREEN].wq_log2,
+			       red_params[RTE_COLOR_YELLOW].wq_log2,
+			       red_params[RTE_COLOR_RED].wq_log2);
+#endif
+	    }
+	  vlib_cli_output (vm, "   TC period = %u milliseconds",
+			   subport_profiles[subport_profile_id].tc_period);
+	  vlib_cli_output (vm, "   Max number of pipes = %u",
+			   subport_params[subport_id].\
+			   n_pipes_per_subport_enabled);
+	  vlib_cli_output (vm, "   Max number of pipe profiles = %u",
+			   subport_params[subport_id].n_max_pipe_profiles);
+	  vlib_cli_output (vm, "   Configured number of pipe profiles = %u",
+			   subport_params[subport_id].n_pipe_profiles);
+
+	  for (int pipe_id = 0; pipe_id < cfg->pipes[subport_id]; pipe_id++)
+	    {
+	      u32 pipe_profile_id =
+		cfg->pipe_profile_id_map[subport_id][pipe_id];
+	      struct rte_sched_pipe_params * pipe_profiles =
+		subport_params[subport_id].pipe_profiles;
+
+	      vlib_cli_output (vm, " Pipe %u: (Profile id: %u)", pipe_id,
+			       pipe_profile_id);
+	      vlib_cli_output (vm, "   Rate = %u bytes/second",
+			       pipe_profiles[pipe_profile_id].tb_rate);
+	      vlib_cli_output (vm, "   Token bucket size = %u bytes",
+			       pipe_profiles[pipe_profile_id].tb_size);
+	      vlib_cli_output (vm, "   TC period = %u milliseconds",
+			       pipe_profiles[pipe_profile_id].tc_period);
+#ifdef RTE_SCHED_SUBPORT_TC_OV
+	      vlib_cli_output (vm, "   TC oversubscription_weight = %u",
+			       pipe_profiles[pipe_profile_id].tc_ov_weight);
+#endif
+	      for (i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++)
+		{
+		  vlib_cli_output (vm,
+				   "   Traffic class rate: TC[%u] = %u "
+				   "bytes/second", i,
+				   pipe_profiles[pipe_profile_id].tc_rate[i]);
+		}
+	      vlib_cli_output (vm,
+			       "   Best Effort TC WRR weights: Q0 = %u, "
+			       "Q1 = %u, Q2 = %u, Q3 = %u",
+			       pipe_profiles[pipe_profile_id].wrr_weights[0],
+			       pipe_profiles[pipe_profile_id].wrr_weights[1],
+			       pipe_profiles[pipe_profile_id].wrr_weights[2],
+			       pipe_profiles[pipe_profile_id].wrr_weights[3]);
+	    }
+	}
+      vlib_cli_output (vm, "================================================"
+		       "================================");
+    }
 done:
   unformat_free (line_input);
+  vec_free (hw_if_indexes);
 
   return error;
 }
@@ -1614,6 +1652,31 @@ VLIB_CLI_COMMAND (cmd_show_dpdk_if_hqos, static) = {
 /* *INDENT-ON* */
 
 static clib_error_t *
+print_hqos_queue_stats (vlib_main_t *vm, dpdk_device_t *xd,
+			dpdk_device_config_hqos_t *hqos, u32 subport_id,
+			u32 pipe_id, u32 tc, u32 tc_q,
+			struct rte_sched_queue_stats *stats)
+{
+  clib_error_t *error = dpdk_hqos_get_queue_stats (xd, hqos, subport_id,
+						   pipe_id, tc, tc_q, stats);
+  if (error == NULL)
+    {
+      vlib_cli_output (vm, "%-24s%-16s", "Stats Parameter", "Value");
+      vlib_cli_output (vm, "%-24s%-16d", "Packets", stats->n_pkts);
+      vlib_cli_output (vm, "%-24s%-16d", "Packets dropped",
+		       stats->n_pkts_dropped);
+#ifdef RTE_SCHED_RED
+      vlib_cli_output (vm, "%-24s%-16d", "Packets dropped (RED)",
+		       stats->n_pkts_red_dropped);
+#endif
+      vlib_cli_output (vm, "%-24s%-16d", "Bytes", stats->n_bytes);
+      vlib_cli_output (vm, "%-24s%-16d", "Bytes dropped",
+		       stats->n_bytes_dropped);
+    }
+  return error;
+}
+
+static clib_error_t *
 show_dpdk_hqos_queue_stats (vlib_main_t * vm, unformat_input_t * input,
                            vlib_cli_command_t * cmd)
 {
@@ -1631,63 +1694,112 @@ show_dpdk_hqos_queue_stats (vlib_main_t * vm, unformat_input_t * input,
   u32 tc_q = ~0;
   struct rte_sched_queue_stats stats;
 
-  if (!unformat_user (input, unformat_line_input, line_input))
+  if (unformat_user (input, unformat_line_input, line_input))
     {
-      return 0;
-    }
-
-  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
-    {
-      if (unformat
-	  (line_input, "%U", unformat_vnet_hw_interface, dm->vnet_main,
-	   &hw_if_index))
-	;
-      else if (unformat (line_input, "subport %d", &subport_id))
-	;
-      else if (unformat (line_input, "pipe %d", &pipe_id))
-	;
-      else if (unformat (line_input, "tc %d", &tc))
-	;
-      else if (unformat (line_input, "tc_q %d", &tc_q))
-	;
-      else
+      while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
 	{
-	  error = clib_error_return (0, "parse error: '%U'",
-				     format_unformat_error, line_input);
-	  goto done;
+	  if (unformat
+	      (line_input, "%U", unformat_vnet_hw_interface, dm->vnet_main,
+	       &hw_if_index))
+	    ;
+	  else if (unformat (line_input, "subport %d", &subport_id))
+	    ;
+	  else if (unformat (line_input, "pipe %d", &pipe_id))
+	    ;
+	  else if (unformat (line_input, "tc %d", &tc))
+	    ;
+	  else if (unformat (line_input, "tc_q %d", &tc_q))
+	    ;
+	  else
+	    {
+	      error = clib_error_return (0, "parse error: '%U'",
+					 format_unformat_error, line_input);
+	      goto free_input;
+	    }
+	}
+
+      error = dpdk_hqos_get_intf_context (hw_if_index, &xd, &devconf);
+      if (error)
+	{
+	  goto free_input;
+	}
+      if ((xd->flags & DPDK_DEVICE_FLAG_HQOS) == 0)
+	{
+	  error = clib_error_return (0, "hqos not enabled on interface");
+	  goto free_input;
+	}
+
+      error = print_hqos_queue_stats (vm, xd, &devconf->hqos, subport_id,
+				      pipe_id, tc, tc_q, &stats);
+
+free_input:
+      unformat_free (line_input);
+      return error;
+    }
+  // Print all queue stats
+  for (u32 cpu = 0; cpu < vec_len (dm->devices_by_hqos_cpu); cpu++)
+    {
+      dpdk_device_and_queue_t *dq;
+      vec_foreach (dq, dm->devices_by_hqos_cpu[cpu])
+	{
+	  hw_if_index = dm->devices[dq->device].hw_if_index;
+	  error = dpdk_hqos_get_intf_context (hw_if_index, &xd, &devconf);
+	  if (error)
+	    {
+	      goto done;
+	    }
+	  vnet_hw_interface_t *hi = vnet_get_hw_interface (dm->vnet_main,
+							   hw_if_index);
+	  vlib_cli_output (vm, "=========================================");
+	  vlib_cli_output (vm, "Interface: %v", hi->name);
+	  vlib_cli_output (vm, "=========================================");
+	  dpdk_device_config_hqos_t * hqos = &devconf->hqos;
+	  for (subport_id = 0;
+	       subport_id < vec_len (hqos->subport_params); subport_id++)
+	    {
+	      vlib_cli_output (vm, "-----------------------------------------");
+	      vlib_cli_output (vm, "Subport: %u", subport_id);
+	      vlib_cli_output (vm, "-----------------------------------------");
+	      for (int pipe_id = 0;
+		   pipe_id < hqos->pipes[subport_id]; pipe_id++)
+		{
+		  vlib_cli_output
+		    (vm, ".........................................");
+		  vlib_cli_output (vm, "Pipe: %u", pipe_id);
+		  vlib_cli_output
+		    (vm, ".........................................");
+		  for (tc = 0; tc < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; tc++)
+		    {
+		      if (tc != RTE_SCHED_TRAFFIC_CLASS_BE)
+			{
+			  // Priority class
+			  vlib_cli_output (vm, "TC: %u Queue: %u", tc, 0);
+			  error = print_hqos_queue_stats
+			    (vm, xd, hqos, subport_id, pipe_id, tc, 0, &stats);
+			  if (error)
+			    {
+			      goto done;
+			    }
+			  continue;
+			}
+		      // Best Effort class
+		      for (tc_q =0; tc_q < RTE_SCHED_BE_QUEUES_PER_PIPE; tc_q++)
+			{
+			  vlib_cli_output(vm, "TC: %u Queue: %u", tc, tc_q);
+			  error = print_hqos_queue_stats
+			    (vm, xd, hqos, subport_id, pipe_id, tc,
+			     tc_q, &stats);
+			  if (error)
+			    {
+			      goto done;
+			    }
+			}
+		    }
+		}
+	    }
 	}
     }
-
-  error = dpdk_hqos_get_intf_context (hw_if_index, &xd, &devconf);
-  if (error)
-    {
-      goto done;
-    }
-  if ((xd->flags & DPDK_DEVICE_FLAG_HQOS) == 0)
-    {
-      error = clib_error_return (0, "hqos not enabled on interface");
-      goto done;
-    }
-
-  error = dpdk_hqos_get_queue_stats (xd, &devconf->hqos, subport_id,
-				     pipe_id, tc, tc_q, &stats);
-  if (error)
-    {
-      goto done;
-    }
-
-  vlib_cli_output (vm, "%=24s%=16s", "Stats Parameter", "Value");
-  vlib_cli_output (vm, "%=24s%=16d", "Packets", stats.n_pkts);
-  vlib_cli_output (vm, "%=24s%=16d", "Packets dropped", stats.n_pkts_dropped);
-#ifdef RTE_SCHED_RED
-  vlib_cli_output (vm, "%=24s%=16d", "Packets dropped (RED)",
-		   stats.n_pkts_red_dropped);
-#endif
-  vlib_cli_output (vm, "%=24s%=16d", "Bytes", stats.n_bytes);
-  vlib_cli_output (vm, "%=24s%=16d", "Bytes dropped", stats.n_bytes_dropped);
-
 #else
-
   /* Get a line of input */
   if (!unformat_user (input, unformat_line_input, line_input))
     {
@@ -1695,13 +1807,10 @@ show_dpdk_hqos_queue_stats (vlib_main_t * vm, unformat_input_t * input,
     }
 
   vlib_cli_output (vm, "RTE_SCHED_COLLECT_STATS disabled in DPDK");
-  goto done;
-
+  unformat_free (line_input);
 #endif
 
 done:
-  unformat_free (line_input);
-
   return error;
 }
 
