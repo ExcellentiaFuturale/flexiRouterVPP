@@ -15,6 +15,13 @@
  * limitations under the License.
  */
 
+/*
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *   - fix_crypto_worker_assignment : Crypto worker thread assignment need to
+ *   include only the cpu.corelist-workers and exclude feature-specific worker
+ *   threads like cpu.corelist-hqos-threads
+ */
+
 #include <vnet/vnet.h>
 #include <vnet/api_errno.h>
 #include <vnet/ip/ip.h>
@@ -181,8 +188,15 @@ ah_decrypt_inline (vlib_main_t * vm,
 	  /* this is the first packet to use this SA, claim the SA
 	   * for this thread. this could happen simultaneously on
 	   * another thread */
+#ifdef FLEXIWAN_FIX /* fix_crypto_worker_assignment */
+	  clib_atomic_cmp_and_swap (&sa0->decrypt_thread_index, ~0,
+				    ipsec_sa_assign_thread
+				    (thread_index, im->first_worker_index,
+				     im->num_workers));
+#else  /* FLEXIWAN_FIX - fix_crypto_worker_assignment */
 	  clib_atomic_cmp_and_swap (&sa0->decrypt_thread_index, ~0,
 				    ipsec_sa_assign_thread (thread_index));
+#endif /* FLEXIWAN_FIX - fix_crypto_worker_assignment */
 	}
 
       if (PREDICT_TRUE (thread_index != sa0->decrypt_thread_index))

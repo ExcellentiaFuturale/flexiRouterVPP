@@ -30,6 +30,9 @@
  *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
  *     default route. The IKEv2 API was enhanced as well to enable user to specify gateway
  *     for IKE traffic.
+ *   - configurable_esn_and_replay_check : Add support to make Extended
+ *     Sequence Number (ESN) and ESP replay check functions configurable
+ *     via API/CLI
 */
 
 #include <vlib/vlib.h>
@@ -2200,6 +2203,13 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
 	  child->time_to_expiration += 1 + (rnd % p->lifetime_jitter);
 	}
     }
+#ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check */
+  /* Enable replay check only if it is enabled in the profile */
+  if (p && !p->replay_check)
+    {
+      a.flags &= ~IPSEC_SA_FLAG_USE_ANTI_REPLAY;
+    }
+#endif/* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 
   if (thread_index & 0xffffffc0)
     ikev2_elog_error ("error: thread index exceeds max range 0x3f!");
@@ -3599,7 +3609,16 @@ ikev2_set_initiator_proposals (vlib_main_t * vm, ikev2_sa_t * sa,
       error = 1;
       vec_foreach (td, km->supported_transforms)
       {
+#ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check */
+	/*
+	 * Match supported ESN transform type with the transform type set in
+	 * the profile
+	 */
+	if ((td->type == IKEV2_TRANSFORM_TYPE_ESN) &&
+	    (td->esn_type == ts->esn_type))
+#else  /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 	if (td->type == IKEV2_TRANSFORM_TYPE_ESN)
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 	  {
 	    vec_add1 (proposal->transforms, *td);
 	    error = 0;
@@ -4185,11 +4204,21 @@ ikev2_set_profile_ike_transforms (vlib_main_t * vm, u8 * name,
   return 0;
 }
 
+
+#ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check */
+clib_error_t *
+ikev2_set_profile_esp_transforms (vlib_main_t * vm, u8 * name,
+				  ikev2_transform_encr_type_t crypto_alg,
+				  ikev2_transform_integ_type_t integ_alg,
+				  u32 crypto_key_size,
+				  ikev2_transform_esn_type_t esn_type)
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 clib_error_t *
 ikev2_set_profile_esp_transforms (vlib_main_t * vm, u8 * name,
 				  ikev2_transform_encr_type_t crypto_alg,
 				  ikev2_transform_integ_type_t integ_alg,
 				  u32 crypto_key_size)
+#endif/* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 {
   ikev2_profile_t *p;
   clib_error_t *r;
@@ -4205,6 +4234,9 @@ ikev2_set_profile_esp_transforms (vlib_main_t * vm, u8 * name,
   p->esp_ts.crypto_alg = crypto_alg;
   p->esp_ts.integ_alg = integ_alg;
   p->esp_ts.crypto_key_size = crypto_key_size;
+#ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check */
+  p->esp_ts.esn_type = esn_type;
+#endif/* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   return 0;
 }
 
@@ -5168,6 +5200,19 @@ ikev2_profile_natt_disable (u8 * name)
   p->natt_disabled = 1;
   return 0;
 }
+
+#ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check */
+clib_error_t *
+ikev2_profile_replay_check_update (u8 * name, u8 is_set)
+{
+  ikev2_profile_t *p = ikev2_profile_index_by_name (name);
+  if (!p)
+    return clib_error_return (0, "unknown profile %v", name);
+
+  p->replay_check = is_set ? 1 : 0;
+  return 0;
+}
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 
 static void
 ikev2_mngr_process_ipsec_sa (ipsec_sa_t * ipsec_sa)

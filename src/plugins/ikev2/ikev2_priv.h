@@ -19,6 +19,10 @@
  *   - Extended IKEv2 state enum with strings.
  *   - Enable user to specify gateway that should be used for IKE traffic.
  *     This is needed for FlexiWAN multi-link policy feature on multi-WAN devices.
+ *
+ *   - configurable_esn_and_replay_check : Add support to make Extended
+ *     Sequence Number (ESN) and ESP replay check functions configurable
+ *     via API/CLI
  */
 
 #ifndef __included_ikev2_priv_h__
@@ -295,6 +299,9 @@ typedef struct
   ikev2_transform_encr_type_t crypto_alg;
   ikev2_transform_integ_type_t integ_alg;
   ikev2_transform_dh_type_t dh_type;
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+  ikev2_transform_esn_type_t esn_type;
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   u32 crypto_key_size;
 } ikev2_transforms_set;
 
@@ -393,7 +400,13 @@ typedef struct
 
   u32 tun_itf;
   u8 udp_encap;
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+  u8 natt_disabled:1;
+  u8 replay_check:1;
+  u8 unused:6;
+#else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   u8 natt_disabled;
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 } ikev2_profile_t;
 
 typedef enum
@@ -646,6 +659,9 @@ int ikev2_set_log_level (ikev2_log_level_t log_level);
 u8 *ikev2_find_ike_notify_payload (ike_header_t * ike, u32 msg_type);
 void ikev2_disable_dpd (void);
 clib_error_t *ikev2_profile_natt_disable (u8 * name);
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+clib_error_t *ikev2_profile_replay_check_update (u8 * name, u8 is_set);
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 
 static_always_inline ikev2_main_per_thread_data_t *
 ikev2_get_per_thread_data ()

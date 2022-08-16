@@ -18,6 +18,10 @@
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - Enable user to specify gateway that should be used for IKE traffic.
  *     This is needed for FlexiWAN multi-link policy feature on multi-WAN devices.
+ *
+ *   - configurable_esn_and_replay_check : Add support to make Extended
+ *     Sequence Number (ESN) and ESP replay check functions configurable
+ *     via API/CLI
  */
 
 #ifndef __included_ikev2_h__
@@ -410,12 +414,23 @@ clib_error_t *ikev2_set_profile_ike_transforms (vlib_main_t * vm, u8 * name,
 						integ_alg,
 						ikev2_transform_dh_type_t
 						dh_type, u32 crypto_key_size);
+#ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check */
+clib_error_t *ikev2_set_profile_esp_transforms (vlib_main_t * vm, u8 * name,
+						ikev2_transform_encr_type_t
+						crypto_alg,
+						ikev2_transform_integ_type_t
+						integ_alg,
+						u32 crypto_key_size,
+						ikev2_transform_esn_type_t
+						esn_type);
+#else  /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 clib_error_t *ikev2_set_profile_esp_transforms (vlib_main_t * vm, u8 * name,
 						ikev2_transform_encr_type_t
 						crypto_alg,
 						ikev2_transform_integ_type_t
 						integ_alg,
 						u32 crypto_key_size);
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
 clib_error_t *ikev2_set_profile_sa_lifetime (vlib_main_t * vm, u8 * name,
 					     u64 lifetime, u32 jitter,
 					     u32 handover, u64 maxdata);

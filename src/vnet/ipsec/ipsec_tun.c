@@ -15,6 +15,12 @@
  * limitations under the License.
  */
 
+/*
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *
+ *   - fix_invalid_access : Fixes to prevent access of uninitialized variables 
+ */
+
 #include <vnet/ipsec/ipsec_tun.h>
 #include <vnet/ipsec/ipsec_itf.h>
 #include <vnet/ipsec/esp.h>
@@ -658,6 +664,10 @@ ipsec_tun_protect_update (u32 sw_if_index,
   u32 itpi, ii, *saip;
   ipsec_main_t *im;
   int rv;
+#ifdef FLEXIWAN_FIX   /* fix_invalid_access */
+  if (NULL == nh)
+    nh = &IP_ADDR_ALL_0;
+#endif /* FLEXIWAN_FIX - fix_invalid_access */
 
   ITP_DBG2 ("update: %U/%U",
 	    format_vnet_sw_if_index_name, vnet_get_main (), sw_if_index,
@@ -671,8 +681,10 @@ ipsec_tun_protect_update (u32 sw_if_index,
 
   rv = 0;
   im = &ipsec_main;
+#ifndef FLEXIWAN_FIX  /* fix_invalid_access */
   if (NULL == nh)
     nh = &IP_ADDR_ALL_0;
+#endif /* FLEXIWAN_FIX - fix_invalid_access */
   itpi = ipsec_tun_protect_find (sw_if_index, nh);
 
   vec_foreach_index (ii, sas_in)
@@ -806,14 +818,20 @@ ipsec_tun_protect_del (u32 sw_if_index, const ip_address_t * nh)
   ipsec_tun_protect_t *itp;
   ipsec_main_t *im;
   index_t itpi;
+#ifdef FLEXIWAN_FIX   /* fix_invalid_access */
+  if (NULL == nh)
+    nh = &IP_ADDR_ALL_0;
+#endif /* FLEXIWAN_FIX - fix_invalid_access */
 
   ITP_DBG2 ("delete: %U/%U",
 	    format_vnet_sw_if_index_name, vnet_get_main (), sw_if_index,
 	    format_ip_address, nh);
 
   im = &ipsec_main;
+#ifndef FLEXIWAN_FIX  /* fix_invalid_access */
   if (NULL == nh)
     nh = &IP_ADDR_ALL_0;
+#endif /* FLEXIWAN_FIX - fix_invalid_access */
 
   itpi = ipsec_tun_protect_find (sw_if_index, nh);
 

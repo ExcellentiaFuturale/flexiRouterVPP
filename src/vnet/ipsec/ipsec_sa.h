@@ -12,6 +12,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *
+ *   - fix_crypto_worker_assignment : Crypto worker thread assignment need to
+ *   include only the cpu.corelist-workers and exclude feature-specific worker
+ *   threads like cpu.corelist-hqos-threads
+ */
+
 #ifndef __IPSEC_SPD_SA_H__
 #define __IPSEC_SPD_SA_H__
 
@@ -499,12 +508,21 @@ ipsec_sa_anti_replay_advance (ipsec_sa_t * sa, u32 seq)
  * Makes choice for thread_id should be assigned.
  *  if input ~0, gets random worker_id based on unix_time_now_nsec
 */
+#ifdef FLEXIWAN_FEATURE  /* fix_crypto_worker_assignment */
+always_inline u32
+ipsec_sa_assign_thread (u32 thread_id, u32 first_worker_index, u32 num_workers)
+{
+  return ((thread_id) ? thread_id
+	  : (first_worker_index + (unix_time_now_nsec () % num_workers)));
+}
+#else  /* FLEXIWAN_FIX - fix_crypto_worker_assignment */
 always_inline u32
 ipsec_sa_assign_thread (u32 thread_id)
 {
   return ((thread_id) ? thread_id
 	  : (unix_time_now_nsec () % vlib_num_workers ()) + 1);
 }
+#endif /* FLEXIWAN_FIX - fix_crypto_worker_assignment */
 
 #endif /* __IPSEC_SPD_SA_H__ */
 
