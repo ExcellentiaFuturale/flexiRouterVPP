@@ -1385,6 +1385,10 @@ show_dpdk_if_hqos (vlib_main_t * vm, unformat_input_t * input,
 	{
 	  error = clib_error_return (0, "parse error: '%U'",
 				     format_unformat_error, line_input);
+	}
+      unformat_free (line_input);
+      if (error)
+	{
 	  goto done;
 	}
     }
@@ -1593,7 +1597,6 @@ show_dpdk_if_hqos (vlib_main_t * vm, unformat_input_t * input,
 		       "================================");
     }
 done:
-  unformat_free (line_input);
   vec_free (hw_if_indexes);
 
   return error;
