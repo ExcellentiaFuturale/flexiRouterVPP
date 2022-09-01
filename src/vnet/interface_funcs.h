@@ -37,6 +37,12 @@
  *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - API to check if this interface is a subinterface. It is ported from next release.
+ */
+
 #ifndef included_vnet_interface_funcs_h
 #define included_vnet_interface_funcs_h
 
