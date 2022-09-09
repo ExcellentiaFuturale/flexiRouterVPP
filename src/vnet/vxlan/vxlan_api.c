@@ -40,9 +40,7 @@
 #include <vnet/feature/feature.h>
 #include <vnet/vxlan/vxlan.h>
 #include <vnet/fib/fib_table.h>
-
 #include <vnet/ip/ip_types_api.h>
-
 #include <vnet/vnet_msg_enum.h>
 
 #define vl_typedefs		/* define message structures */
@@ -190,7 +188,8 @@ static void vl_api_vxlan_add_del_tunnel_t_handler
     .next_hop.frp_addr = next_hop_ip,
 #endif /* FLEXIWAN_FEATURE */
 #ifdef FLEXIWAN_FEATURE
-    .dest_port = clib_net_to_host_u16 (mp->dest_port),
+    .src_port = clib_net_to_host_u16 (mp->src_port),
+    .dst_port = clib_net_to_host_u16 (mp->dst_port),
 #endif
 
 #ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
@@ -200,8 +199,10 @@ static void vl_api_vxlan_add_del_tunnel_t_handler
 
 #ifdef FLEXIWAN_FEATURE
   /* set default port if none is provided */
-  if (a.dest_port == 0)
-    a.dest_port = UDP_DST_PORT_vxlan;
+  if (a.src_port == 0)
+    a.src_port = UDP_DST_PORT_vxlan;
+  if (a.dst_port == 0)
+    a.dst_port = UDP_DST_PORT_vxlan;
 #endif
   /* Check src & dst are different */
   if (ip46_address_cmp (&a.dst, &a.src) == 0)
@@ -254,7 +255,8 @@ static void send_vxlan_tunnel_details
   rmp->sw_if_index = htonl (t->sw_if_index);
   rmp->context = context;
 #ifdef FLEXIWAN_FEATURE
-  rmp->dest_port = clib_host_to_net_u16(t->dest_port);
+  rmp->src_port = clib_host_to_net_u16(t->src_port);
+  rmp->dst_port = clib_host_to_net_u16(t->dst_port);
 #endif
 
   vl_api_send_msg (reg, (u8 *) rmp);
