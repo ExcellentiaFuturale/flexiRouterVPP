@@ -26,6 +26,12 @@
  *    ACL plugin. Matching ACLs provide the service class and importance
  *    attribute. The classification result is marked in the packet and can be
  *    made use of in other functions like scheduling, policing, marking etc.
+ *
+ *  - enable_dpdk_tun_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TUN interface. This set of changes enable
+ *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
+ *    to make use of DPDK interface feature like QoS.
+ *
  * 
  * This deprecated file is enhanced and added as part of the
  * flexiwan feature - integrating_dpdk_qos_sched
@@ -39,6 +45,9 @@
 #include <sys/mount.h>
 #include <string.h>
 #include <fcntl.h>
+//#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+#include <net/if.h>
+//#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
 #include <vppinfra/vec.h>
 #include <vppinfra/error.h>
@@ -426,13 +435,31 @@ dpdk_hqos_get_intf_context (u32 sw_if_index, dpdk_device_t ** xd,
       p =
        hash_get (dm->conf->device_config_index_by_pci_addr, pci_addr.as_u32);
     }
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  else
+    {
+      char ifname[IFNAMSIZ];
+      if (if_indextoname (dev_info.if_index, ifname))
+	{
+	  p = hash_get_mem (dm->conf->device_config_index_by_ifname, ifname);
+	}
+    }
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
   if (devconf)
     {
       if (p)
 	(*devconf) = pool_elt_at_index (dm->conf->dev_confs, p[0]);
       else
-	(*devconf) = &dm->conf->default_devconf;
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+	/*
+	 * With the changes, it is always true that every interface will own
+	 * a device config
+	 */
+	error = clib_error_return (0, "interface config not found");
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+        (*devconf) = &dm->conf->default_devconf;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
     }
 
 done:

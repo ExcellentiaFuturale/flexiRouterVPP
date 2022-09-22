@@ -20,6 +20,12 @@
  *     These tunnels do not need NAT, so there is no need to create NAT session
  *     for them. That improves performance on multi-core machines,
  *     as NAT session are bound to the specific worker thread / core.
+ *
+ *  - enable_dpdk_tun_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TUN interface. This set of changes enable
+ *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
+ *    to make use of DPDK interface feature like QoS.
+ *
  */
 
 #include <vnet/vnet.h>
@@ -377,6 +383,51 @@ dpdk_device_input (vlib_main_t * vm, dpdk_main_t * dm, dpdk_device_t * xd,
       vlib_buffer_enqueue_to_next (vm, node, ptd->buffers, ptd->next,
 				   n_rx_packets);
     }
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  /*
+   * Adding support to process TUN interface packets which need to be directly
+   * passed to IP layer (It is a case of no ethernet header)
+   */
+  else if (xd->port_type == VNET_DPDK_PORT_TYPE_TUN)
+    {
+      n_left = n_rx_packets;
+      mb = ptd->mbufs;
+      next_index = node->cached_next_index;
+
+      while (n_left)
+	{
+          u32 *to_next, n_left_to_next, next0, bi0;
+	  vlib_get_next_frame (vm, node, next_index, to_next, n_left_to_next);
+
+	  while (n_left && n_left_to_next)
+	    {
+	      b0 = vlib_buffer_from_rte_mbuf (mb[0]);
+	      bi0 = vlib_get_buffer_index (vm, b0);
+	      switch (b0->data[0] & 0xf0)
+		{
+		case 0x40:
+		  next0 = VNET_DEVICE_INPUT_NEXT_IP4_INPUT;
+		  break;
+		case 0x60:
+		  next0 = VNET_DEVICE_INPUT_NEXT_IP6_INPUT;
+		  break;
+		default:
+		  next0 = VNET_DEVICE_INPUT_NEXT_DROP;
+		  break;
+		}
+	      to_next[0] = bi0;
+	      to_next++;
+	      mb++;
+	      n_left_to_next--;
+	      n_left--;
+
+	      vlib_validate_buffer_enqueue_x1 (vm, node, next_index, to_next,
+					       n_left_to_next, bi0, next0);
+	    }
+	  vlib_put_next_frame (vm, node, next_index, n_left_to_next);
+	}
+    }
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
   else
     {
       u32 *to_next, n_left_to_next;
