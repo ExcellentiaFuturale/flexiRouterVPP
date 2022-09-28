@@ -340,7 +340,7 @@ typedef struct
 #endif
 
 #ifndef HQOS_FLUSH_COUNT_THRESHOLD
-#define HQOS_FLUSH_COUNT_THRESHOLD              100000
+#define HQOS_FLUSH_COUNT_THRESHOLD              100
 #endif
 
 #ifndef MAX
