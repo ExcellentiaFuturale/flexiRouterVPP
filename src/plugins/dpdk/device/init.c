@@ -29,6 +29,10 @@
  *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
  *    to make use of DPDK interface feature like QoS.
  *
+ *  - enable_dpdk_tap_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TAP interface. This set of changes enable
+ *    VPP to initialize TAP interfaces using DPDK. This sets up TAP interfaces
+ *    to make use of DPDK interface feature like QoS.
  *
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - added support for vendor 0x1f18
@@ -83,6 +87,11 @@ dpdk_device_config (dpdk_config_main_t * conf, vlib_pci_addr_t pci_addr,
 		    unsigned char *ifname, unformat_input_t * input,
 		    dpdk_device_config_t ** out_devconf);
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+// Default DPDK tap interface name pattern as defined in rte_eth_tap.c
+#define DEFAULT_TAP_IFNAME_PREFIX "dtap"
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
 
 /* Port configuration, mildly modified Intel app values */
 
@@ -316,6 +325,9 @@ dpdk_lib_init (dpdk_main_t * dm)
   u32 last_pci_addr_port = 0;
   u8 af_packet_instance_num = 0;
   last_pci_addr.as_u32 = ~0;
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+  u16 tap_instance_num = 0;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
 #ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
   u16 tun_instance_num = 0;
   dpdk_device_config_t *default_devconf = dpdk_get_device_config (NULL, 0);
@@ -718,6 +730,13 @@ dpdk_lib_init (dpdk_main_t * dm)
 	      xd->tun_instance_num = tun_instance_num++;
 	      break;
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+	    case VNET_DPDK_PMD_TAP:
+	      xd->port_type = VNET_DPDK_PORT_TYPE_TAP;
+	      xd->tap_instance_num = tap_instance_num++;
+	      break;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
+
 
 	    default:
 	      xd->port_type = VNET_DPDK_PORT_TYPE_UNKNOWN;
@@ -1468,47 +1487,97 @@ dpdk_log_read_ready (clib_file_t * uf)
   return 0;
 }
 
-#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
-/* Support to process vdev tun input provided in startup conf */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init, enable_dpdk_tap_init */
+/*
+ * Support to process vdev tuntap input provided in startup conf
+ * Returns 2 -> On parse success and sub_input exists
+ * Returns 1 -> On parse success and no sub_input exists
+ * Returns 0 -> On parse fail
+ */
+static i32
+dpdk_config_vdev_tuntap_parse (unformat_input_t * input,
+			       u32 * out_tuntap_id,
+			       u8 ** out_ifname,
+			       unformat_input_t * out_sub_input)
+{
+  if (unformat (input, "%u,iface=%s %U", out_tuntap_id, out_ifname,
+		unformat_vlib_cli_sub_input, out_sub_input) ||
+      unformat (input, "%u %U", out_tuntap_id, unformat_vlib_cli_sub_input,
+		 out_sub_input))
+    {
+      return 2;
+    }
+  else if (unformat (input, "%u,iface=%s", out_tuntap_id, out_ifname) ||
+	   unformat (input, "%u", out_tuntap_id))
+    {
+      return 1;
+    }
+  return 0;
+}
+
 static clib_error_t *
-dpdk_config_vdev_tun(unformat_input_t * input, u8 **out_str)
+dpdk_config_vdev_tuntap_setup (unformat_input_t * input, u8 **out_str)
 {
   u8 *ifname = NULL;
-  u32 tun_id;
+  u32 type = ~0;
+  u32 tuntap_id = ~0;
   unformat_input_t sub_input, *sub_input_ptr = NULL;
   dpdk_config_main_t *conf = &dpdk_config_main;
   clib_error_t * error;
-  if (unformat (input, " net_tun%u,iface=%s %U", &tun_id, &ifname,
-		     unformat_vlib_cli_sub_input, &sub_input))
+  i32 rv = 0;
+
+  if (unformat (input, " net_tun"))
     {
-      sub_input_ptr = &sub_input;
+      rv = dpdk_config_vdev_tuntap_parse (input, &tuntap_id, &ifname,
+					  &sub_input);
+      if (rv)
+	{
+	  type = VNET_DPDK_PMD_TUN;
+	  if (ifname == NULL)
+	    {
+	      ifname = format (0, "%s%u", DEFAULT_TUN_IFNAME_PREFIX,
+			       tuntap_id);
+	    }
+	}
     }
-  else if (unformat (input, " net_tun%u,iface=%s", &tun_id, &ifname))
-    ;
-  else if (unformat (input, " net_tun%u %U", &tun_id,
-		     unformat_vlib_cli_sub_input, &sub_input))
+  else if (unformat (input, " net_tap"))
     {
-      sub_input_ptr = &sub_input;
+      rv = dpdk_config_vdev_tuntap_parse (input, &tuntap_id, &ifname,
+					  &sub_input);
+      if (rv)
+	{
+	  type = VNET_DPDK_PMD_TAP;
+	  if (ifname == NULL)
+	    {
+	      ifname = format (0, "%s%u", DEFAULT_TAP_IFNAME_PREFIX,
+			       tuntap_id);
+	    }
+	}
     }
-  else if (unformat (input, " net_tun%u", &tun_id))
-    ;
-  else
+  if (rv == 0)
     {
       return NULL;
     }
-  if (ifname == NULL)
+  else if (rv == 2)
     {
-      ifname = format (0, "%s%u", DEFAULT_TUN_IFNAME_PREFIX, tun_id);
+      sub_input_ptr = &sub_input;
     }
   error = dpdk_device_config (conf, (vlib_pci_addr_t) (u32) 0, ifname,
 			      sub_input_ptr, NULL);
   if (error == NULL)
     {
-      *out_str = format (0, "net_tun%u,iface=%s", tun_id, ifname);
+      if (type == VNET_DPDK_PMD_TUN)
+	{
+	  *out_str = format (0, "net_tun%u,iface=%s", tuntap_id, ifname);
+	}
+      else if (type == VNET_DPDK_PMD_TAP)
+	{
+	  *out_str = format (0, "net_tap%u,iface=%s", tuntap_id, ifname);
+	}
     }
   return error;
 }
-#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init, enable_dpdk_tap_init */
 
 static clib_error_t *
 dpdk_config (vlib_main_t * vm, unformat_input_t * input)
@@ -1677,7 +1746,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
             if (!strncmp(#a, "vdev", 4))              \
 	      {                                       \
 		s = NULL;                             \
-		error = dpdk_config_vdev_tun(input, &s);  \
+		error = dpdk_config_vdev_tuntap_setup (input, &s);  \
 		if (error)                            \
 		  {                                   \
 		    return error;                     \
