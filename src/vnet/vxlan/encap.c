@@ -289,9 +289,13 @@ vxlan_encap_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FIX
           /* Fix UDP length  and set source port */
           udp0->length = payload_l0;
-		  udp0->src_port = flow_hash0;
+		//   udp0->src_port = clib_host_to_net_u16 (4789);
+		  //udp0->src_port = flow_hash0;
+		  udp0->src_port = clib_host_to_net_u16 (t0->src_port);
           udp1->length = payload_l1;
-          udp1->src_port = flow_hash1;
+		//   udp1->src_port = clib_host_to_net_u16 (4789);
+          //udp1->src_port = flow_hash1;
+		  udp1->src_port = clib_host_to_net_u16 (t1->src_port);
 #else /* FLEXIWAN_FIX */
 	  /* Fix UDP length  and set source port */
 	  udp0->length = payload_l0;
@@ -496,7 +500,8 @@ vxlan_encap_inline (vlib_main_t * vm,
           /* Fix UDP length  and set source port */
           udp0->length = payload_l0;
           /* udp0->src_port = clib_host_to_net_u16 (4789);*/
-		  udp0->src_port = flow_hash0;
+		  udp0->src_port = clib_host_to_net_u16 (t0->src_port);
+		//   udp0->src_port = flow_hash0;
 #else /* FLEXIWAN_FIX */
 	  /* Fix UDP length  and set source port */
 	  udp0->length = payload_l0;
