@@ -788,7 +788,7 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  if (PREDICT_FALSE (di0.sw_if_index == ~0))
 	    goto exit0; /* unknown interface */
 
-	  /*if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
+	  //if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
 	  /*if (udp0->dst_port != clib_host_to_net_u16 (udp0->src_port))
 	    goto exit0;		 not VXLAN packet */
 
