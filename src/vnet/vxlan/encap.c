@@ -17,8 +17,14 @@
 /*
  *  Copyright (C) 2020 flexiWAN Ltd.
  *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
- *   - Use 4789 for VxLan src port - enables full NAT traversal
- *   - Add destination port for vxlan tunnle, if remote device is behind NAT. Port is
+ *   - Use of a specific source port for VxLan src port - enables full NAT traversal
+ *   - The source port is defined at /etc/flexiwan/agent/fwagent_conf.yaml
+ *      vxlan:
+ *         src_port: 4000          # VXLAN UDP local source port (UDP listening port)
+ *         dst_port: 5000          # VXLAN UDP remote source port (UDP destination port)
+ *         default_src_port: 4789  # Default VXLAN UDP source port
+ *         default_dst_port: 4789  # Default VXLAN UDP destination port
+ *   - Add destination port for vxlan tunnel, if remote device is behind NAT. Port is
  *     provisioned by fleximanage when creating the tunnel.
  *
  *  - acl_based_classification: Feature to provide traffic classification using
@@ -289,12 +295,10 @@ vxlan_encap_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FIX
           /* Fix UDP length  and set source port */
           udp0->length = payload_l0;
-		//   udp0->src_port = clib_host_to_net_u16 (4789);
-		  //udp0->src_port = flow_hash0;
+		  /* udp0->src_port = clib_host_to_net_u16 (4789); */
 		  udp0->src_port = clib_host_to_net_u16 (t0->src_port);
           udp1->length = payload_l1;
-		//   udp1->src_port = clib_host_to_net_u16 (4789);
-          //udp1->src_port = flow_hash1;
+		  /* udp1->src_port = clib_host_to_net_u16 (4789); */
 		  udp1->src_port = clib_host_to_net_u16 (t1->src_port);
 #else /* FLEXIWAN_FIX */
 	  /* Fix UDP length  and set source port */
@@ -499,9 +503,8 @@ vxlan_encap_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FIX
           /* Fix UDP length  and set source port */
           udp0->length = payload_l0;
-          /* udp0->src_port = clib_host_to_net_u16 (4789);*/
+          /* udp0->src_port = clib_host_to_net_u16 (4789); */
 		  udp0->src_port = clib_host_to_net_u16 (t0->src_port);
-		//   udp0->src_port = flow_hash0;
 #else /* FLEXIWAN_FIX */
 	  /* Fix UDP length  and set source port */
 	  udp0->length = payload_l0;
