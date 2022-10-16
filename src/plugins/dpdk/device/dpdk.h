@@ -27,6 +27,10 @@
  *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
  *    to make use of DPDK interface feature like QoS.
  *
+ *  - enable_dpdk_tap_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TAP interface. This set of changes enable
+ *    VPP to initialize TAP interfaces using DPDK. This sets up TAP interfaces
+ *    to make use of DPDK interface feature like QoS.
  */
 
 #ifndef __included_dpdk_h__
@@ -109,6 +113,9 @@ extern vlib_node_registration_t admin_up_down_process_node;
   _ ("net_qede", QEDE)		  \
   _ ("net_netvsc", NETVSC)        \
   _ ("net_bnxt", BNXT)            \
+/* #ifdef FLEXIWAN_FEATURE - enable_dpdk_tap_init */ \
+  _ ("net_tap", TAP)              \
+/* #endif FLEXIWAN_FEATURE - enable_dpdk_tap_init */ \
 /* #ifdef FLEXIWAN_FEATURE - enable_dpdk_tun_init */ \
   _ ("net_tun", TUN)
 /* #endif FLEXIWAN_FEATURE - enable_dpdk_tun_init */
@@ -144,6 +151,9 @@ typedef enum
 #ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
   VNET_DPDK_PORT_TYPE_TUN,
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+  VNET_DPDK_PORT_TYPE_TAP,
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
   VNET_DPDK_PORT_TYPE_UNKNOWN,
 } dpdk_port_type_t;
 
@@ -305,6 +315,10 @@ typedef struct
   /* tun instance number */
   u16 tun_instance_num;
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+  /* tap instance number */
+  u16 tap_instance_num;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
   struct rte_eth_link link;
   f64 time_last_link_update;
 

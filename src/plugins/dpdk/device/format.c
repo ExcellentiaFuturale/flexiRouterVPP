@@ -27,6 +27,11 @@
  *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
  *    to make use of DPDK interface feature like QoS.
  *
+ *  - enable_dpdk_tap_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TAP interface. This set of changes enable
+ *    VPP to initialize TAP interfaces using DPDK. This sets up TAP interfaces
+ *    to make use of DPDK interface feature like QoS.
+ *
  */
 
 #include <vnet/vnet.h>
@@ -216,8 +221,13 @@ format_dpdk_device_name (u8 * s, va_list * args)
 
 #ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
     case VNET_DPDK_PORT_TYPE_TUN:
-      return format (s, "tun%d", xd->tun_instance_num);
+      return format (s, "dpdk-tun%d", xd->tun_instance_num);
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+    case VNET_DPDK_PORT_TYPE_TAP:
+      return format (s, "dpdk-tap%d", xd->tap_instance_num);
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
 
     default:
     case VNET_DPDK_PORT_TYPE_UNKNOWN:
@@ -376,6 +386,11 @@ format_dpdk_device_type (u8 * s, va_list * args)
       dev_type = "DPDK Tun interface";
       break;
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+    case VNET_DPDK_PMD_TAP:
+      dev_type = "DPDK Tap interface";
+      break;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
 
     default:
     case VNET_DPDK_PMD_UNKNOWN:
