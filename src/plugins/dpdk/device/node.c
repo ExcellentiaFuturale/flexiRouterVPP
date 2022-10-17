@@ -415,6 +415,8 @@ dpdk_device_input (vlib_main_t * vm, dpdk_main_t * dm, dpdk_device_t * xd,
 		  next0 = VNET_DEVICE_INPUT_NEXT_DROP;
 		  break;
 		}
+	      ptd->buffers[mb - ptd->mbufs] = bi0;
+	      ptd->next[mb - ptd->mbufs] = next0;
 	      to_next[0] = bi0;
 	      to_next++;
 	      mb++;
