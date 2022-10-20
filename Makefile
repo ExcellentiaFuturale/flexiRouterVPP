@@ -111,6 +111,7 @@ RPM_DEPENDS += mbedtls-devel
 RPM_DEPENDS += ccache
 RPM_DEPENDS += xmlto
 RPM_DEPENDS += elfutils-libelf-devel
+RPM_DEPENDS += libnl3-devel  # FLEXIWAN_FEATURE needed for vlan
 
 ifeq ($(OS_ID),fedora)
 	RPM_DEPENDS += dnf-utils
