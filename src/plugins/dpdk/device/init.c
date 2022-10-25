@@ -1523,7 +1523,7 @@ dpdk_config_vdev_tuntap_setup (unformat_input_t * input, u8 **out_str)
   u32 tuntap_id = ~0;
   unformat_input_t sub_input, *sub_input_ptr = NULL;
   dpdk_config_main_t *conf = &dpdk_config_main;
-  clib_error_t * error;
+  clib_error_t * error = NULL;
   i32 rv = 0;
 
   if (unformat (input, " net_tun"))
@@ -1556,7 +1556,14 @@ dpdk_config_vdev_tuntap_setup (unformat_input_t * input, u8 **out_str)
     }
   if (rv == 0)
     {
-      return NULL;
+      error = clib_error_return (0, "unknown input `%U'",
+				 format_unformat_error, input);
+      goto done;
+    }
+  else if (ifname == NULL)
+    {
+      error = clib_error_return (0, "ifname format failed");
+      goto done;
     }
   else if (rv == 2)
     {
@@ -1568,13 +1575,15 @@ dpdk_config_vdev_tuntap_setup (unformat_input_t * input, u8 **out_str)
     {
       if (type == VNET_DPDK_PMD_TUN)
 	{
-	  *out_str = format (0, "net_tun%u,iface=%s", tuntap_id, ifname);
+	  *out_str = format (0, "net_tun%u,iface=%s%c", tuntap_id, ifname, 0);
 	}
       else if (type == VNET_DPDK_PMD_TAP)
 	{
-	  *out_str = format (0, "net_tap%u,iface=%s", tuntap_id, ifname);
+	  *out_str = format (0, "net_tap%u,iface=%s%c", tuntap_id, ifname, 0);
 	}
     }
+done:
+  vec_free (ifname);
   return error;
 }
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init, enable_dpdk_tap_init */
