@@ -21,6 +21,16 @@
  *    The FlexiWAN commit makes the required corresponding changes and brings
  *    back the feature to working state. Additionaly made enhancements in the
  *    context of WAN QoS needs.
+ *
+ *  - enable_dpdk_tun_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TUN interface. This set of changes enable
+ *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
+ *    to make use of DPDK interface feature like QoS.
+ *
+ *  - enable_dpdk_tap_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TAP interface. This set of changes enable
+ *    VPP to initialize TAP interfaces using DPDK. This sets up TAP interfaces
+ *    to make use of DPDK interface feature like QoS.
  */
 
 #ifndef __included_dpdk_h__
@@ -102,7 +112,13 @@ extern vlib_node_registration_t admin_up_down_process_node;
   _ ("net_liovf", LIOVF_ETHER)    \
   _ ("net_qede", QEDE)		  \
   _ ("net_netvsc", NETVSC)        \
-  _ ("net_bnxt", BNXT)
+  _ ("net_bnxt", BNXT)            \
+/* #ifdef FLEXIWAN_FEATURE - enable_dpdk_tap_init */ \
+  _ ("net_tap", TAP)              \
+/* #endif FLEXIWAN_FEATURE - enable_dpdk_tap_init */ \
+/* #ifdef FLEXIWAN_FEATURE - enable_dpdk_tun_init */ \
+  _ ("net_tun", TUN)
+/* #endif FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
 typedef enum
 {
@@ -132,6 +148,12 @@ typedef enum
   VNET_DPDK_PORT_TYPE_VHOST_ETHER,
   VNET_DPDK_PORT_TYPE_FAILSAFE,
   VNET_DPDK_PORT_TYPE_NETVSC,
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  VNET_DPDK_PORT_TYPE_TUN,
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+  VNET_DPDK_PORT_TYPE_TAP,
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
   VNET_DPDK_PORT_TYPE_UNKNOWN,
 } dpdk_port_type_t;
 
@@ -289,6 +311,14 @@ typedef struct
   /* af_packet instance number */
   u16 af_packet_instance_num;
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  /* tun instance number */
+  u16 tun_instance_num;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+  /* tap instance number */
+  u16 tap_instance_num;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
   struct rte_eth_link link;
   f64 time_last_link_update;
 
@@ -324,7 +354,7 @@ typedef struct
 #endif
 
 #ifndef HQOS_FLUSH_COUNT_THRESHOLD
-#define HQOS_FLUSH_COUNT_THRESHOLD              100000
+#define HQOS_FLUSH_COUNT_THRESHOLD              100
 #endif
 
 #ifndef MAX
@@ -407,8 +437,12 @@ typedef struct
 #undef _
     clib_bitmap_t * workers;
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  /* flag to indicate if the device need to take the default device config */
+  u8 use_default;
+#endif   /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 #ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
-  u32 hqos_enabled;
+  u8 hqos_enabled;
   dpdk_device_config_hqos_t hqos;
 #endif   /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
   u8 tso;
@@ -446,9 +480,14 @@ typedef struct
   u8 interface_name_format_decimal;
 
   /* per-device config */
+#ifndef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
   dpdk_device_config_t default_devconf;
+#endif   /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
   dpdk_device_config_t *dev_confs;
   uword *device_config_index_by_pci_addr;
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  uword *device_config_index_by_ifname;
+#endif   /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
   /* devices blacklist by pci vendor_id, device_id */
   u32 *blacklist_by_pci_vendor_and_device;

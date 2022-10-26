@@ -187,7 +187,7 @@ vaes_cbc_dec (u8x64 * k, u8x64u * src, u8x64u * dst, u8x16 * iv, int count,
       dst[0] = r[0] ^= aes_cbc_dec_permute (f, c[0]);
       dst[1] = r[1] ^= aes_cbc_dec_permute (c[0], c[1]);
       dst[2] = r[2] ^= aes_cbc_dec_permute (c[1], c[2]);
-      dst[4] = r[3] ^= aes_cbc_dec_permute (c[2], c[3]);
+      dst[3] = r[3] ^= aes_cbc_dec_permute (c[2], c[3]);
       f = c[3];
 
       n_blocks -= 16;
@@ -317,9 +317,9 @@ more:
     {
 #ifdef __VAES__
       r[0] = u8x64_xor3 (r[0], aes_block_load_x4 (src, i), k[0][0]);
-      r[1] = u8x64_xor3 (r[1], aes_block_load_x4 (src, i), k[0][1]);
-      r[2] = u8x64_xor3 (r[2], aes_block_load_x4 (src, i), k[0][2]);
-      r[3] = u8x64_xor3 (r[3], aes_block_load_x4 (src, i), k[0][3]);
+      r[1] = u8x64_xor3 (r[1], aes_block_load_x4 (src + 4, i), k[0][1]);
+      r[2] = u8x64_xor3 (r[2], aes_block_load_x4 (src + 8, i), k[0][2]);
+      r[3] = u8x64_xor3 (r[3], aes_block_load_x4 (src + 12, i), k[0][3]);
 
       for (j = 1; j < rounds; j++)
 	{
