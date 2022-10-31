@@ -49,7 +49,7 @@ typedef u8 fwabf_label_t;	/*flexiwan path label used by policy to choose link*/
 
 /*
    The following structures defines traffic quality characteristics
-   as per RFC 4564 Configuration Guidelines for DiffServ Service Classes
+   as per RFC 4594 Configuration Guidelines for DiffServ Service Classes
 */
 
 typedef struct fwabf_quality_t_ {
@@ -58,19 +58,20 @@ typedef struct fwabf_quality_t_ {
     u32 jitter;
 } fwabf_quality_t;
 
-/* Service Classes as per RFC 4564 Figure 2 */
+/* Service Classes as per RFC 4594 Figure 2 */
 typedef enum fwabf_quality_service_class_t_ {
     FWABF_QUALITY_SC_MIN                       = -1,
     FWABF_QUALITY_SC_TELEPHONY                 = 0,
     FWABF_QUALITY_SC_BROADCAST_VIDEO           = 1,
     FWABF_QUALITY_SC_REAL_TIME                 = 2,
-    FWABF_QUALITY_SC_SIGNALING_NETWORK_CONTROL = 3,
-    FWABF_QUALITY_SC_LOW_LATENCY               = 4,
-    FWABF_QUALITY_SC_OAM                       = 5,
-    FWABF_QUALITY_SC_HIGH_THROUGHPUT           = 6,
-    FWABF_QUALITY_SC_MULTIMEDIA_CONFERENCING   = 7,
-    FWABF_QUALITY_SC_MULTIMEDIA_STREAMING      = 8,
-    FWABF_QUALITY_SC_STANDARD                  = 9,
+    FWABF_QUALITY_SC_SIGNALING                 = 3,
+    FWABF_QUALITY_SC_NETWORK_CONTROL           = 4,
+    FWABF_QUALITY_SC_LOW_LATENCY               = 5,
+    FWABF_QUALITY_SC_OAM                       = 6,
+    FWABF_QUALITY_SC_HIGH_THROUGHPUT           = 7,
+    FWABF_QUALITY_SC_MULTIMEDIA_CONFERENCING   = 8,
+    FWABF_QUALITY_SC_MULTIMEDIA_STREAMING      = 9,
+    FWABF_QUALITY_SC_STANDARD                  = 10,
     /* keep this last! */
     FWABF_QUALITY_SC_MAX
 } fwabf_quality_service_class_t;
