@@ -24,6 +24,16 @@
  *    back the feature to working state. Additionaly made enhancements in the
  *    context of WAN QoS needs.
  *
+ *  - enable_dpdk_tun_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TUN interface. This set of changes enable
+ *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
+ *    to make use of DPDK interface feature like QoS.
+ *
+ *  - enable_dpdk_tap_init : The VPP's DPDK plugin currently does not expose
+ *    DPDK capability to initialize TAP interface. This set of changes enable
+ *    VPP to initialize TAP interfaces using DPDK. This sets up TAP interfaces
+ *    to make use of DPDK interface feature like QoS.
+ *
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - added support for vendor 0x1f18
  */
@@ -54,6 +64,9 @@
 #include <string.h>
 #include <fcntl.h>
 #include <dirent.h>
+//#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+#include <net/if.h>
+//#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
 #include <dpdk/device/dpdk_priv.h>
 
@@ -63,6 +76,22 @@ dpdk_main_t dpdk_main;
 dpdk_config_main_t dpdk_config_main;
 
 #define LINK_STATE_ELOGS	0
+
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+// Default DPDK tun interface name pattern as defined in rte_eth_tap.c
+#define DEFAULT_TUN_IFNAME_PREFIX "dtun"
+extern vnet_hw_interface_class_t tun_device_hw_interface_class;
+
+static clib_error_t *
+dpdk_device_config (dpdk_config_main_t * conf, vlib_pci_addr_t pci_addr,
+		    unsigned char *ifname, unformat_input_t * input,
+		    dpdk_device_config_t ** out_devconf);
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+// Default DPDK tap interface name pattern as defined in rte_eth_tap.c
+#define DEFAULT_TAP_IFNAME_PREFIX "dtap"
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
 
 /* Port configuration, mildly modified Intel app values */
 
@@ -215,6 +244,70 @@ dpdk_enable_l4_csum_offload (dpdk_device_t * xd)
     DPDK_DEVICE_FLAG_INTEL_PHDR_CKSUM;
 }
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+/*
+ * The function fetches device config using PCI address or interface if_index
+ * as key. If both PCI address and if_index is not provided, then the default
+ * device config is returned
+ */
+static dpdk_device_config_t *
+dpdk_get_device_config (struct rte_pci_device *pci_dev, u32 if_index)
+{
+  dpdk_main_t *dm = &dpdk_main;
+  vlib_pci_addr_t pci_addr;
+  uword *p = NULL;
+  dpdk_device_config_t *devconf = NULL;
+  clib_error_t *error = NULL;
+
+  if ((!pci_dev) && (!if_index))
+    {
+      /* Lookup default devconf */
+      p = hash_get (dm->conf->device_config_index_by_pci_addr, (u32) ~0);
+      goto lookup_from_index;
+    }
+
+  if (pci_dev)
+    {
+      pci_addr.domain = pci_dev->addr.domain;
+      pci_addr.bus = pci_dev->addr.bus;
+      pci_addr.slot = pci_dev->addr.devid;
+      pci_addr.function = pci_dev->addr.function;
+      p = hash_get (dm->conf->device_config_index_by_pci_addr,
+		    pci_addr.as_u32);
+      if (!p)
+	{
+	  error = dpdk_device_config
+	    (dm->conf, pci_addr, NULL, NULL, &devconf);
+	}
+    }
+  else
+    {
+      char ifname[IFNAMSIZ];
+      if (if_indextoname (if_index, ifname))
+	{
+	  p = hash_get_mem (dm->conf->device_config_index_by_ifname, ifname);
+	  if (!p)
+	    {
+	      error = dpdk_device_config (dm->conf, (vlib_pci_addr_t ) (u32) 0,
+					  (unsigned char *)ifname, NULL,
+					  &devconf);
+	    }
+	}
+    }
+  if (error)
+    {
+      clib_warning ("%U", format_clib_error, error);
+      clib_error_free (error);
+    }
+lookup_from_index:
+  if (p)
+    {
+      devconf = pool_elt_at_index (dm->conf->dev_confs, p[0]);
+    }
+  return devconf;
+}
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+
 static clib_error_t *
 dpdk_lib_init (dpdk_main_t * dm)
 {
@@ -232,6 +325,13 @@ dpdk_lib_init (dpdk_main_t * dm)
   u32 last_pci_addr_port = 0;
   u8 af_packet_instance_num = 0;
   last_pci_addr.as_u32 = ~0;
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+  u16 tap_instance_num = 0;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  u16 tun_instance_num = 0;
+  dpdk_device_config_t *default_devconf = dpdk_get_device_config (NULL, 0);
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
 #ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
   vlib_thread_registration_t *tr_hqos;
@@ -290,7 +390,6 @@ dpdk_lib_init (dpdk_main_t * dm)
       dpdk_portid_t next_port_id;
       dpdk_device_config_t *devconf = 0;
       vlib_pci_addr_t pci_addr;
-      uword *p = 0;
 
       if (!rte_eth_dev_is_valid_port(i))
 	continue;
@@ -304,6 +403,27 @@ dpdk_lib_init (dpdk_main_t * dm)
 	  continue;
 	}
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+      pci_dev = dpdk_get_pci_device (&dev_info);
+      devconf = dpdk_get_device_config (pci_dev, dev_info.if_index);
+      if (!devconf)
+	{
+	  clib_warning ("DPDK missing config. Skipping %s device",
+			   dev_info.driver_name);
+	  continue;
+	}
+      if (devconf->use_default && default_devconf)
+        {
+	  memcpy (devconf, default_devconf, sizeof (dpdk_device_config_t));
+	}
+      /* Create vnet interface */
+      vec_add2_aligned (dm->devices, xd, 1, CLIB_CACHE_LINE_BYTES);
+      xd->nb_rx_desc = DPDK_NB_RX_DESC_DEFAULT;
+      xd->nb_tx_desc = DPDK_NB_TX_DESC_DEFAULT;
+      xd->cpu_socket = (i8) rte_eth_dev_socket_id (i);
+      xd->name = devconf->name;
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+      uword *p = 0;
       pci_dev = dpdk_get_pci_device (&dev_info);
 
       if (pci_dev)
@@ -330,6 +450,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	}
       else
 	devconf = &dm->conf->default_devconf;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
       /* Handle representor devices that share the same PCI ID */
       if (dev_info.switch_info.domain_id != RTE_ETH_DEV_SWITCH_DOMAIN_ID_INVALID)
@@ -603,6 +724,20 @@ dpdk_lib_init (dpdk_main_t * dm)
                 }
 	      break;
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+	    case VNET_DPDK_PMD_TUN:
+	      xd->port_type = VNET_DPDK_PORT_TYPE_TUN;
+	      xd->tun_instance_num = tun_instance_num++;
+	      break;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tap_init */
+	    case VNET_DPDK_PMD_TAP:
+	      xd->port_type = VNET_DPDK_PORT_TYPE_TAP;
+	      xd->tap_instance_num = tap_instance_num++;
+	      break;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tap_init */
+
+
 	    default:
 	      xd->port_type = VNET_DPDK_PORT_TYPE_UNKNOWN;
 	    }
@@ -661,7 +796,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	 int cpu;
          if (devconf->hqos.hqos_thread_valid)
            {
-             if (devconf->hqos.hqos_thread >= dm->hqos_cpu_count)
+             if (devconf->hqos.hqos_thread > dm->hqos_cpu_count)
                return clib_error_return (0, "invalid HQoS thread index");
 
              cpu = dm->hqos_cpu_first_index + devconf->hqos.hqos_thread;
@@ -681,6 +816,7 @@ dpdk_lib_init (dpdk_main_t * dm)
              devconf->hqos.hqos_thread = cpu;
            }
 
+         dpdk_device_config_hqos_default (&devconf->hqos);
          clib_error_t *rv;
          rv = dpdk_port_setup_hqos (xd, &devconf->hqos);
          if (rv)
@@ -695,12 +831,39 @@ dpdk_lib_init (dpdk_main_t * dm)
        }
 #endif    /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+      if (xd->port_type == VNET_DPDK_PORT_TYPE_TUN)
+	{
+	  xd->hw_if_index = vnet_register_interface
+	    (dm->vnet_main, dpdk_device_class.index, xd->device_index,
+	     tun_device_hw_interface_class.index, 0);
+	  hi = vnet_get_hw_interface (dm->vnet_main, xd->hw_if_index);
+	  xd->sw_if_index = hi->sw_if_index;
+
+	  /* Mark Interface as up */
+	  vnet_hw_interface_set_flags (dm->vnet_main, xd->hw_if_index,
+				       VNET_HW_INTERFACE_FLAG_LINK_UP);
+	  vnet_sw_interface_set_flags (dm->vnet_main, xd->sw_if_index,
+				       VNET_SW_INTERFACE_FLAG_ADMIN_UP);
+	}
+      else
+	{
+	  error = ethernet_register_interface
+	    (dm->vnet_main, dpdk_device_class.index, xd->device_index,
+	     /* ethernet address */ addr,
+	     &xd->hw_if_index, dpdk_flag_change);
+
+	  if (error)
+	    return error;
+	}
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
       error = ethernet_register_interface
 	(dm->vnet_main, dpdk_device_class.index, xd->device_index,
 	 /* ethernet address */ addr,
 	 &xd->hw_if_index, dpdk_flag_change);
       if (error)
 	return error;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
       /*
        * Ensure default mtu is not > the mtu read from the hardware.
@@ -809,11 +972,23 @@ dpdk_lib_init (dpdk_main_t * dm)
 	  hi->max_supported_packet_bytes = max_rx_frame;
 	  hi->numa_node = xd->cpu_socket;
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+	  if (xd->port_type != VNET_DPDK_PORT_TYPE_TUN)
+	    {
+	      /* Indicate ability to support L3 DMAC filtering and
+	       * initialize interface to L3 non-promisc mode */
+	      hi->flags |= VNET_HW_INTERFACE_FLAG_SUPPORTS_MAC_FILTER;
+	      ethernet_set_flags (dm->vnet_main, xd->hw_if_index,
+				  ETHERNET_INTERFACE_FLAG_DEFAULT_L3);
+	    }
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 	  /* Indicate ability to support L3 DMAC filtering and
 	   * initialize interface to L3 non-promisc mode */
 	  hi->flags |= VNET_HW_INTERFACE_FLAG_SUPPORTS_MAC_FILTER;
 	  ethernet_set_flags (dm->vnet_main, xd->hw_if_index,
 			     ETHERNET_INTERFACE_FLAG_DEFAULT_L3);
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+
 	}
 
       if (dm->conf->no_tx_checksum_offload == 0)
@@ -1116,19 +1291,47 @@ dpdk_bind_vmbus_devices_to_uio (dpdk_config_main_t * conf)
   /* *INDENT-ON* */
 }
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+static clib_error_t *
+dpdk_device_config (dpdk_config_main_t * conf, vlib_pci_addr_t pci_addr,
+		    unsigned char *ifname, unformat_input_t * input,
+		    dpdk_device_config_t **out_devconf)
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 static clib_error_t *
 dpdk_device_config (dpdk_config_main_t * conf, vlib_pci_addr_t pci_addr,
 		    unformat_input_t * input, u8 is_default)
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 {
   clib_error_t *error = 0;
   uword *p;
   dpdk_device_config_t *devconf;
   unformat_input_t sub_input;
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  if (ifname)
+    {
+      p = hash_get_mem (conf->device_config_index_by_ifname, ifname);
+      if (!p)
+	{
+	  pool_get (conf->dev_confs, devconf);
+	  memset (devconf, 0, sizeof (dpdk_device_config_t));
+
+          u8 *ifname_copy = format (0, "%s%c", ifname, 0);
+	  hash_set_mem (conf->device_config_index_by_ifname, ifname_copy,
+			devconf - conf->dev_confs);
+	}
+      else
+	{
+	  return clib_error_return
+	    (0, "duplicate configuration for ifname %s", ifname);
+	}
+    }
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
   if (is_default)
     {
       devconf = &conf->default_devconf;
     }
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
   else
     {
       p = hash_get (conf->device_config_index_by_pci_addr, pci_addr.as_u32);
@@ -1136,6 +1339,11 @@ dpdk_device_config (dpdk_config_main_t * conf, vlib_pci_addr_t pci_addr,
       if (!p)
 	{
 	  pool_get (conf->dev_confs, devconf);
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+	  memset (devconf, 0, sizeof (dpdk_device_config_t));
+          devconf->pci_addr.as_u32 = pci_addr.as_u32;
+          devconf->tso = DPDK_DEVICE_TSO_DEFAULT;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 	  hash_set (conf->device_config_index_by_pci_addr, pci_addr.as_u32,
 		    devconf - conf->dev_confs);
 	}
@@ -1145,15 +1353,27 @@ dpdk_device_config (dpdk_config_main_t * conf, vlib_pci_addr_t pci_addr,
 				  format_vlib_pci_addr, &pci_addr);
     }
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  if (out_devconf)
+    {
+      *out_devconf = devconf;
+    }
+  if (!input)
+    {
+      /*
+       * No device specific configuration provided. Set flag to make use of
+       * default device config
+       */
+      devconf->use_default = 1;
+      return 0;
+    }
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
   devconf->pci_addr.as_u32 = pci_addr.as_u32;
   devconf->tso = DPDK_DEVICE_TSO_DEFAULT;
-#ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
-  devconf->hqos_enabled = 0;
-  dpdk_device_config_hqos_default (&devconf->hqos);
-#endif    /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 
   if (!input)
     return 0;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
   unformat_skip_white_space (input);
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
@@ -1267,6 +1487,107 @@ dpdk_log_read_ready (clib_file_t * uf)
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init, enable_dpdk_tap_init */
+/*
+ * Support to process vdev tuntap input provided in startup conf
+ * Returns 2 -> On parse success and sub_input exists
+ * Returns 1 -> On parse success and no sub_input exists
+ * Returns 0 -> On parse fail
+ */
+static i32
+dpdk_config_vdev_tuntap_parse (unformat_input_t * input,
+			       u32 * out_tuntap_id,
+			       u8 ** out_ifname,
+			       unformat_input_t * out_sub_input)
+{
+  if (unformat (input, "%u,iface=%s %U", out_tuntap_id, out_ifname,
+		unformat_vlib_cli_sub_input, out_sub_input) ||
+      unformat (input, "%u %U", out_tuntap_id, unformat_vlib_cli_sub_input,
+		 out_sub_input))
+    {
+      return 2;
+    }
+  else if (unformat (input, "%u,iface=%s", out_tuntap_id, out_ifname) ||
+	   unformat (input, "%u", out_tuntap_id))
+    {
+      return 1;
+    }
+  return 0;
+}
+
+static clib_error_t *
+dpdk_config_vdev_tuntap_setup (unformat_input_t * input, u8 **out_str)
+{
+  u8 *ifname = NULL;
+  u32 type = ~0;
+  u32 tuntap_id = ~0;
+  unformat_input_t sub_input, *sub_input_ptr = NULL;
+  dpdk_config_main_t *conf = &dpdk_config_main;
+  clib_error_t * error = NULL;
+  i32 rv = 0;
+
+  if (unformat (input, " net_tun"))
+    {
+      rv = dpdk_config_vdev_tuntap_parse (input, &tuntap_id, &ifname,
+					  &sub_input);
+      if (rv)
+	{
+	  type = VNET_DPDK_PMD_TUN;
+	  if (ifname == NULL)
+	    {
+	      ifname = format (0, "%s%u", DEFAULT_TUN_IFNAME_PREFIX,
+			       tuntap_id);
+	    }
+	}
+    }
+  else if (unformat (input, " net_tap"))
+    {
+      rv = dpdk_config_vdev_tuntap_parse (input, &tuntap_id, &ifname,
+					  &sub_input);
+      if (rv)
+	{
+	  type = VNET_DPDK_PMD_TAP;
+	  if (ifname == NULL)
+	    {
+	      ifname = format (0, "%s%u", DEFAULT_TAP_IFNAME_PREFIX,
+			       tuntap_id);
+	    }
+	}
+    }
+  if (rv == 0)
+    {
+      error = clib_error_return (0, "unknown input `%U'",
+				 format_unformat_error, input);
+      goto done;
+    }
+  else if (ifname == NULL)
+    {
+      error = clib_error_return (0, "ifname format failed");
+      goto done;
+    }
+  else if (rv == 2)
+    {
+      sub_input_ptr = &sub_input;
+    }
+  error = dpdk_device_config (conf, (vlib_pci_addr_t) (u32) 0, ifname,
+			      sub_input_ptr, NULL);
+  if (error == NULL)
+    {
+      if (type == VNET_DPDK_PMD_TUN)
+	{
+	  *out_str = format (0, "net_tun%u,iface=%s%c", tuntap_id, ifname, 0);
+	}
+      else if (type == VNET_DPDK_PMD_TAP)
+	{
+	  *out_str = format (0, "net_tap%u,iface=%s%c", tuntap_id, ifname, 0);
+	}
+    }
+done:
+  vec_free (ifname);
+  return error;
+}
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init, enable_dpdk_tap_init */
+
 static clib_error_t *
 dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 {
@@ -1292,6 +1613,14 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
     format (0, "%s/hugepages%c", vlib_unix_get_runtime_dir (), 0);
 
   conf->device_config_index_by_pci_addr = hash_create (0, sizeof (uword));
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+  /*
+   * Earlier, VPP DPDK plugin supported only looking up of device config based
+   * on PCIaddress. With the need to enable DPDK TUN support, looking up device
+   * config using ifname as key is required.
+   */
+  conf->device_config_index_by_ifname = hash_create_string (0, sizeof (uword));
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -1319,9 +1648,18 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
       else if (unformat (input, "dev default %U", unformat_vlib_cli_sub_input,
 			 &sub_input))
 	{
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+         /*
+          * PCI address of all 1s (ff:ff:..) is used as key to represent the
+          * default configuration
+          */
+	  error = dpdk_device_config
+	    (conf, (vlib_pci_addr_t) (u32) ~ 0, NULL, &sub_input, NULL);
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 	  error =
 	    dpdk_device_config (conf, (vlib_pci_addr_t) (u32) ~ 1, &sub_input,
 				1);
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
 	  if (error)
 	    return error;
@@ -1331,7 +1669,11 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 	    (input, "dev %U %U", unformat_vlib_pci_addr, &pci_addr,
 	     unformat_vlib_cli_sub_input, &sub_input))
 	{
-	  error = dpdk_device_config (conf, pci_addr, &sub_input, 0);
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+	  error = dpdk_device_config (conf, pci_addr, NULL, &sub_input, NULL);
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
+	  error = dpdk_device_config (conf, pci_addr, &sub_input, 0)
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
 	  if (error)
 	    return error;
@@ -1340,7 +1682,11 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 	}
       else if (unformat (input, "dev %U", unformat_vlib_pci_addr, &pci_addr))
 	{
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+	  error = dpdk_device_config (conf, pci_addr, NULL, 0, NULL);
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 	  error = dpdk_device_config (conf, pci_addr, 0, 0);
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
 	  if (error)
 	    return error;
@@ -1398,6 +1744,43 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
         }
       foreach_eal_double_hyphen_predicate_arg
 #undef _
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+#define _(a)                                          \
+	else if (unformat(input, #a))	              \
+	  {					      \
+            if (!strncmp(#a, "file-prefix", 11))      \
+              file_prefix = 1;                        \
+	    tmp = format (0, "--%s%c", #a, 0);	      \
+	    vec_add1 (conf->eal_init_args, tmp);      \
+            if (!strncmp(#a, "vdev", 4))              \
+	      {                                       \
+		s = NULL;                             \
+		error = dpdk_config_vdev_tuntap_setup (input, &s);  \
+		if (error)                            \
+		  {                                   \
+		    return error;                     \
+		  }                                   \
+		else if (s)                           \
+		  {                                   \
+		    vec_add1 (conf->eal_init_args, s);\
+		  }                                   \
+		else if (unformat (input, "%s", s))   \
+		  {                                   \
+		    vec_add1 (s, 0);		      \
+		    if (strstr((char*)s, "af_packet"))\
+		      clib_warning ("af_packet obsoleted. Use CLI 'create host-interface'."); \
+		    vec_add1 (conf->eal_init_args, s);\
+		  }                                   \
+	      }                                       \
+            else if (unformat (input, "%s", s))       \
+	      {                                       \
+		    vec_add1 (s, 0);		      \
+		    vec_add1 (conf->eal_init_args, s);\
+	      }                                       \
+	  }
+	foreach_eal_double_hyphen_arg
+#undef _
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 #define _(a)                                          \
 	else if (unformat(input, #a " %s", &s))	      \
 	  {					      \
@@ -1413,6 +1796,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 	  }
 	foreach_eal_double_hyphen_arg
 #undef _
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 #define _(a,b)						\
 	  else if (unformat(input, #a " %s", &s))	\
 	    {						\
@@ -1527,9 +1911,22 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
   if (no_vmbus == 0 && geteuid () == 0)
     dpdk_bind_vmbus_devices_to_uio (conf);
 
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+   dpdk_device_config_t *default_devconf = NULL;
+   uword * default_index =
+   hash_get (conf->device_config_index_by_pci_addr, (u32) ~0);
+   if (default_index)
+     {
+       default_devconf = pool_elt_at_index (conf->dev_confs, default_index[0]);
+     }
+#define _(x) \
+    if ((default_devconf) && (devconf->x == 0 && default_devconf->x > 0)) \
+      devconf->x = default_devconf->x ;
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 #define _(x) \
     if (devconf->x == 0 && conf->default_devconf.x > 0) \
       devconf->x = conf->default_devconf.x ;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
   /* *INDENT-OFF* */
   pool_foreach (devconf, conf->dev_confs)  {
@@ -1538,10 +1935,17 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
     foreach_dpdk_device_config_item
 
     /* copy vlan_strip config from default device */
+#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
+	if (default_devconf && devconf->vlan_strip_offload == 0 &&
+		default_devconf->vlan_strip_offload > 0)
+		devconf->vlan_strip_offload =
+			default_devconf->vlan_strip_offload;
+#else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 	if (devconf->vlan_strip_offload == 0 &&
 		conf->default_devconf.vlan_strip_offload > 0)
 		devconf->vlan_strip_offload =
 			conf->default_devconf.vlan_strip_offload;
+#endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 
 	/* copy tso config from default device */
 	_(tso)
