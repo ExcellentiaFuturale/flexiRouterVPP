@@ -17,9 +17,15 @@
 #include <classifier_acls/classifier_acls.h>
 #include <classifier_acls/inlines.h>
 
-typedef struct 
+typedef struct
 {
+  u32 sw_if_index;
+  u32 match_acl_index;
+  u32 match_rule_index;
   u32 next_index;
+  u8 match_flag;
+  u8 service_class;
+  u8 importance;
 } classifier_acls_trace_t;
 
 #ifndef CLIB_MARCH_VARIANT
@@ -31,7 +37,10 @@ static u8 * format_classifier_acls_trace (u8 * s, va_list * args)
   CLIB_UNUSED (vlib_node_t * node) = va_arg (*args, vlib_node_t *);
   classifier_acls_trace_t * t = va_arg (*args, classifier_acls_trace_t *);
   
-  s = format (s, "CLASSIFIER_ACLS: next index %d\n", t->next_index);
+  s = format (s, "CLASSIFIER_ACLS: sw_if_index: %u, match: %u, next_index: %u",
+	      t->sw_if_index, t->match_flag, t->next_index);
+  s = format (s, "\nacl_index: %u, rule_index: %u, service_class: %u, importance: %u",
+	      t->match_acl_index, t->match_rule_index, t->service_class, t->importance);
   return s;
 }
 
@@ -74,6 +83,8 @@ classifier_acls_node_inline (vlib_main_t * vm,
   classifier_acls_next_t next_index;
   u32 matches = 0;
   u32 misses = 0;
+  u32 match_acl_index;
+  u32 match_rule_index;
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -91,6 +102,7 @@ classifier_acls_node_inline (vlib_main_t * vm,
 	  vlib_buffer_t * b0;
 	  u32 next0;
 	  u32 sw_if_index;
+          match_acl_index = ~0;
 
 	  /* speculatively enqueue b0 to the current next frame */
 	  bi0 = from[0];
@@ -103,7 +115,9 @@ classifier_acls_node_inline (vlib_main_t * vm,
 	  b0 = vlib_get_buffer (vm, bi0);
 	  sw_if_index = vnet_buffer (b0)->sw_if_index[VLIB_RX];
 
-	  if (classifier_acls_classify_packet (b0, sw_if_index, is_ip6))
+	  if (classifier_acls_classify_packet (b0, sw_if_index, is_ip6,
+					       &match_acl_index,
+					       &match_rule_index))
 	    {
 	      matches++;
 	    }
@@ -115,6 +129,19 @@ classifier_acls_node_inline (vlib_main_t * vm,
 	  /* move on down the feature arc */
 	  vnet_feature_next (&next0, b0);
 
+	  if (PREDICT_FALSE ((node->flags & VLIB_NODE_FLAG_TRACE)
+			     && (b0->flags & VLIB_BUFFER_IS_TRACED)))
+	    {
+	      classifier_acls_trace_t *t = vlib_add_trace (vm, node, b0,
+							   sizeof (*t));
+	      t->next_index = next0;
+	      t->sw_if_index = sw_if_index;
+	      t->match_flag = (match_acl_index != ~0) ? 1 : 0;
+	      t->service_class = vnet_buffer2 (b0)->qos.service_class;
+	      t->importance = vnet_buffer2 (b0)->qos.importance;
+	      t->match_acl_index = match_acl_index;
+	      t->match_rule_index = (t->match_flag) ? match_rule_index : ~0;
+	    }
 	  /* verify speculative enqueue, maybe switch current next frame */
 	  vlib_validate_buffer_enqueue_x1 (vm, node, next_index,
 					   to_next, n_left_to_next,

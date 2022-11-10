@@ -1252,6 +1252,10 @@ dpdk_hqos_metadata_set (dpdk_device_hqos_per_worker_thread_t * hqos,
 	    }
 	  rte_sched_port_pkt_write (port, pkt, subport_id, pipe_id,
 				    (tc_q >> 2), (tc_q & 0x3), 0);
+
+	  /* Reset hierarchy specific identifier fields */
+	  vnet_buffer2 (b)->qos.id_1 = 0;
+	  vnet_buffer2 (b)->qos.id_2 = 0;
 	}
       return;
     }
