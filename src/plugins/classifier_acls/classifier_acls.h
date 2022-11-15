@@ -32,6 +32,12 @@ typedef struct {
     /* Per interface ACL lookup context IDs. Indexed by sw_if_index */
     u32 *acl_lc_index_by_sw_if_index;
 
+    /* Vector of classifier acl indexes */
+    u32 *acls;
+
+    /* Vector of interface added for classification */
+    u32 *intfs_indexed_by_sw_if_index;
+
     /* API message ID base */
     u16 msg_id_base;
 
@@ -46,7 +52,8 @@ typedef struct {
  * specified interface
  */
 u32 classifier_acls_classify_packet_api (vlib_buffer_t *b, u32 sw_if_index,
-                                         u8 is_ip6);
+                                         u8 is_ip6, u32 *out_acl_index,
+                                         u32 *out_acl_rule_index);
 
 
 #endif /* __included_classifier_acls_h__ */

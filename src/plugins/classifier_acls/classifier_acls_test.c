@@ -126,6 +126,18 @@ static int api_classifier_acls_set_interface_acl_list (vat_main_t * vam)
     return ret;
 }
 
+
+/* NOT YET IMPLEMENTED */
+static int api_classifier_acls_set_acl_list (vat_main_t * vam)
+{
+  return 0;
+}
+
+static int api_classifier_acls_set_interface (vat_main_t * vam)
+{
+  return 0;
+}
+
 /*
  * List of messages that the classifier_acls test plugin sends,
  * and that the data plane plugin processes
