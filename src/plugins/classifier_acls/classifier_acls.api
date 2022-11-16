@@ -56,3 +56,35 @@ autoreply define classifier_acls_set_interface_acl_list
   option vat_help = "<intfc> | sw_if_index <if-idx> [acl-idx list]";
 };
 
+/** \brief Setup the ACLs that defines the classification rules
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param count - total number of ACL indices in the vector
+    @param acls - vector of ACL indices
+*/
+
+autoreply define classifier_acls_set_acl_list
+{
+  u32 client_index;
+  u32 context;
+  u8 count;
+  u32 acls[count];
+  option vat_help = "<intfc> | [acl-idx list]";
+};
+
+/** \brief Setup the classification acls on the given interface
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param is_add - flag to indicate add or remove the interface
+    @param sw_if_index - the interface on which ACLs are to be applied
+*/
+
+autoreply define classifier_acls_set_interface
+{
+  u32 client_index;
+  u32 context;
+  bool is_add;
+  vl_api_interface_index_t sw_if_index;
+  option vat_help = "<intfc> | [sw-if-index list]";
+};
+

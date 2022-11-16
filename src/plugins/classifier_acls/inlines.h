@@ -24,7 +24,8 @@ extern classifier_acls_main_t classifier_acls_main;
  * specified interface
  */
 always_inline u32
-classifier_acls_classify_packet (vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6)
+classifier_acls_classify_packet (vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6,
+                                 u32 *out_acl_index, u32 *out_acl_rule_index)
 {
   classifier_acls_main_t * cmp = &classifier_acls_main;
   fa_5tuple_opaque_t fa_5tuple0;
@@ -65,6 +66,14 @@ classifier_acls_classify_packet (vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6)
       vnet_buffer2 (b)->qos.importance = importance;
       vnet_buffer2 (b)->qos.source = QOS_SOURCE_IP;
       b->flags |= VNET_BUFFER_F_IS_CLASSIFIED;
+      if (out_acl_index)
+        {
+	  *out_acl_index = match_acl_index;
+        }
+      if (out_acl_rule_index)
+        {
+	  *out_acl_rule_index = match_rule_index;
+        }
       return 1;
     }
   else
