@@ -337,8 +337,12 @@ vxlan4_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache4 * cache, u16 * cache_
       vxlan_decap_info_t di = {.as_u64 = key4.value };
       u32 instance = vxm->tunnel_index_by_sw_if_index[di.sw_if_index];
       vxlan_tunnel_t *t0 = pool_elt_at_index (vxm->tunnels, instance);
-      /* Validate VXLAN tunnel destination port against packet source port */
-      if (PREDICT_FALSE (t0->src_port != dst_port))
+      /* Compare the configured VXLAN tunnel destination port (dst_port) against the received VXLAN packet's source port:
+         tunnel.dst_port == packet.src_port: the UDP session is correct and packets decap and processed. 
+         tunnel.dst_port != packet.src_port: the UDP session is not correct because of ports mistmatch and packets
+                            must be punted to the flexiagent application. 
+       */
+      if (PREDICT_FALSE (t0->dst_port != src_port))
         return decap_not_found;
 
       *cache = key4;
