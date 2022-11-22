@@ -90,6 +90,28 @@ classifier_acls_set_interface_acl_list (classifier_acls_main_t * cmp,
 }
 
 
+/* interface set function shared between message handler and debug CLI */
+static int
+classifier_acls_set (classifier_acls_main_t * cmp, u32 sw_if_index,
+                     int is_add)
+{
+  int rv;
+  vec_validate_init_empty (cmp->intfs_indexed_by_sw_if_index, sw_if_index, 0);
+  if (is_add)
+    {
+      rv = classifier_acls_set_interface_acl_list (cmp, sw_if_index,
+						   cmp->acls);
+      cmp->intfs_indexed_by_sw_if_index[sw_if_index] = 1;
+    }
+  else
+    {
+      rv = classifier_acls_set_interface_acl_list (cmp, sw_if_index, NULL);
+      cmp->intfs_indexed_by_sw_if_index[sw_if_index] = 0;
+    }
+  return rv;
+}
+
+
 static clib_error_t *
 classifier_acls_enable_disable_command_fn (vlib_main_t * vm,
                                    unformat_input_t * input,
@@ -134,14 +156,74 @@ classifier_acls_enable_disable_command_fn (vlib_main_t * vm,
   return 0;
 }
 
+
+static clib_error_t *
+classifier_acls_set_command_fn (vlib_main_t * vm, unformat_input_t * input,
+                                vlib_cli_command_t * cmd)
+{
+  classifier_acls_main_t * cmp = &classifier_acls_main;
+  u32 sw_if_index = ~0;
+  int is_add = 1;
+  clib_error_t *error = NULL;
+  int rv;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "del"))
+        is_add = 0;
+      else if (unformat (input, "%U", unformat_vnet_sw_interface,
+                         cmp->vnet_main, &sw_if_index))
+        ;
+      else
+        break;
+  }
+
+  if (sw_if_index == ~0)
+    return clib_error_return (0, "Please specify a valid interface");
+
+  rv = classifier_acls_set (cmp, sw_if_index, is_add);
+
+  switch(rv)
+    {
+    case 0:
+      break;
+    case VNET_API_ERROR_INVALID_SW_IF_INDEX:
+      error = clib_error_return
+	(0, "Invalid interface -  Unsupported interface type");
+      break;
+    default:
+      error = clib_error_return (0, "classifier_acls_set returned %d", rv);
+      break;
+    }
+  return error;
+}
+
 /* *INDENT-OFF* */
+/*
+ * Command to enable or disable classification on the interface. The
+ * configuration on the interface stays as is and this command only enables or
+ * disables the feature from the interface. It can also help in quick debugging
+ * of the packet path with and without this feature
+ */
 VLIB_CLI_COMMAND (classifier_acls_enable_disable_command, static) =
 {
-  .path = "classifier-acls set",
+  .path = "classifier-acls enable",
   .short_help =
-  "classifier-acls set <interface-name> [del]",
+  "classifier-acls enable <interface-name> [del]",
   .function = classifier_acls_enable_disable_command_fn,
 };
+
+/*
+ * Command to add interface to the classification feature. The ACLs attached to
+ * the feature shall be set on this interface
+ */
+VLIB_CLI_COMMAND (classifier_acls_set_command, static) =
+{
+  .path = "classifier-acls set",
+  .short_help = "classifier-acls set <interface-name> [del]",
+  .function = classifier_acls_set_command_fn,
+};
+
 /* *INDENT-ON* */
 
 
@@ -284,18 +366,10 @@ static void
     }
   if (0 == rv)
     {
-      vec_validate_init_empty
-	(cmp->intfs_indexed_by_sw_if_index, sw_if_index, 0);
-      if (mp->is_add)
+      rv = classifier_acls_set (cmp, sw_if_index, mp->is_add);
+      if (rv)
 	{
-	  rv = classifier_acls_set_interface_acl_list (cmp, sw_if_index,
-						       cmp->acls);
-	  cmp->intfs_indexed_by_sw_if_index[sw_if_index] = 1;
-	}
-      else
-	{
-	  rv = classifier_acls_set_interface_acl_list (cmp, sw_if_index, NULL);
-	  cmp->intfs_indexed_by_sw_if_index[sw_if_index] = 0;
+	  clib_warning ("ERROR: Interface classification on: %u", sw_if_index);
 	}
     }
 
