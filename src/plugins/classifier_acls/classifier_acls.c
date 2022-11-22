@@ -350,14 +350,16 @@ VNET_FEATURE_INIT (ip4_classifier_acls, static) =
 {
   .arc_name = "ip4-unicast",
   .node_name = "ip4-classifier-acls",
-  .runs_after = VNET_FEATURES ("abf-input-ip4","fwabf-input-ip4"),
+  .runs_after = VNET_FEATURES ("acl-plugin-in-ip4-fa"),
+  .runs_before = VNET_FEATURES ("abf-input-ip4","fwabf-input-ip4"),
 };
 
 VNET_FEATURE_INIT (ip6_classifier_acls, static) =
 {
   .arc_name = "ip6-unicast",
   .node_name = "ip6-classifier-acls",
-  .runs_after = VNET_FEATURES ("abf-input-ip6","fwabf-input-ip6"),
+  .runs_after = VNET_FEATURES ("acl-plugin-in-ip6-fa"),
+  .runs_before = VNET_FEATURES ("abf-input-ip6","fwabf-input-ip6"),
 };
 
 
