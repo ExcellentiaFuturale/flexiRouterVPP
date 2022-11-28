@@ -90,6 +90,28 @@ classifier_acls_set_interface_acl_list (classifier_acls_main_t * cmp,
 }
 
 
+/* interface set function shared between message handler and debug CLI */
+static int
+classifier_acls_set (classifier_acls_main_t * cmp, u32 sw_if_index,
+                     int is_add)
+{
+  int rv;
+  vec_validate_init_empty (cmp->intfs_indexed_by_sw_if_index, sw_if_index, 0);
+  if (is_add)
+    {
+      rv = classifier_acls_set_interface_acl_list (cmp, sw_if_index,
+						   cmp->acls);
+      cmp->intfs_indexed_by_sw_if_index[sw_if_index] = 1;
+    }
+  else
+    {
+      rv = classifier_acls_set_interface_acl_list (cmp, sw_if_index, NULL);
+      cmp->intfs_indexed_by_sw_if_index[sw_if_index] = 0;
+    }
+  return rv;
+}
+
+
 static clib_error_t *
 classifier_acls_enable_disable_command_fn (vlib_main_t * vm,
                                    unformat_input_t * input,
@@ -134,14 +156,74 @@ classifier_acls_enable_disable_command_fn (vlib_main_t * vm,
   return 0;
 }
 
+
+static clib_error_t *
+classifier_acls_set_command_fn (vlib_main_t * vm, unformat_input_t * input,
+                                vlib_cli_command_t * cmd)
+{
+  classifier_acls_main_t * cmp = &classifier_acls_main;
+  u32 sw_if_index = ~0;
+  int is_add = 1;
+  clib_error_t *error = NULL;
+  int rv;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "del"))
+        is_add = 0;
+      else if (unformat (input, "%U", unformat_vnet_sw_interface,
+                         cmp->vnet_main, &sw_if_index))
+        ;
+      else
+        break;
+  }
+
+  if (sw_if_index == ~0)
+    return clib_error_return (0, "Please specify a valid interface");
+
+  rv = classifier_acls_set (cmp, sw_if_index, is_add);
+
+  switch(rv)
+    {
+    case 0:
+      break;
+    case VNET_API_ERROR_INVALID_SW_IF_INDEX:
+      error = clib_error_return
+	(0, "Invalid interface -  Unsupported interface type");
+      break;
+    default:
+      error = clib_error_return (0, "classifier_acls_set returned %d", rv);
+      break;
+    }
+  return error;
+}
+
 /* *INDENT-OFF* */
+/*
+ * Command to enable or disable classification on the interface. The
+ * configuration on the interface stays as is and this command only enables or
+ * disables the feature from the interface. It can also help in quick debugging
+ * of the packet path with and without this feature
+ */
 VLIB_CLI_COMMAND (classifier_acls_enable_disable_command, static) =
 {
-  .path = "classifier-acls set",
+  .path = "classifier-acls enable",
   .short_help =
-  "classifier-acls set <interface-name> [del]",
+  "classifier-acls enable <interface-name> [del]",
   .function = classifier_acls_enable_disable_command_fn,
 };
+
+/*
+ * Command to add interface to the classification feature. The ACLs attached to
+ * the feature shall be set on this interface
+ */
+VLIB_CLI_COMMAND (classifier_acls_set_command, static) =
+{
+  .path = "classifier-acls set",
+  .short_help = "classifier-acls set <interface-name> [del]",
+  .function = classifier_acls_set_command_fn,
+};
+
 /* *INDENT-ON* */
 
 
@@ -206,9 +288,93 @@ static void
 	}
     }
 
+  clib_bitmap_free (seen_acl_bitmap);
   REPLY_MACRO (VL_API_CLASSIFIER_ACLS_SET_INTERFACE_ACL_LIST_REPLY);
 }
 
+
+static void
+  vl_api_classifier_acls_set_acl_list_t_handler
+  (vl_api_classifier_acls_set_acl_list_t * mp)
+{
+  classifier_acls_main_t * cmp = &classifier_acls_main;
+  vl_api_classifier_acls_set_acl_list_reply_t *rmp;
+  int rv = 0;
+  int i;
+  uword *seen_acl_bitmap = 0;
+
+  for (i = 0; i < mp->count; i++)
+    {
+      u32 acl_index = clib_net_to_host_u32 (mp->acls[i]);
+      /* Check if ACLs exist */
+      if (!cmp->acl_plugin.acl_exists (acl_index))
+	{
+	  clib_warning ("ERROR: ACL %d not defined", acl_index);
+	  rv = VNET_API_ERROR_NO_SUCH_ENTRY;
+	  break;
+	}
+      /* Check if any ACL is being applied twice */
+      if (clib_bitmap_get (seen_acl_bitmap, acl_index))
+	{
+	  clib_warning ("ERROR: ACL %d being applied twice", acl_index);
+	  rv = VNET_API_ERROR_ENTRY_ALREADY_EXISTS;
+	  break;
+	}
+      seen_acl_bitmap = clib_bitmap_set (seen_acl_bitmap, acl_index, 1);
+    }
+  if (0 == rv)
+    {
+      u32 *acl_vec = 0;
+      for (i = 0; i < mp->count; i++)
+	{
+	  vec_add1 (acl_vec, clib_net_to_host_u32 (mp->acls[i]));
+	}
+      vec_free (cmp->acls);
+      cmp->acls = acl_vec;
+      vec_foreach_index (i, cmp->intfs_indexed_by_sw_if_index)
+	{
+	  if (cmp->intfs_indexed_by_sw_if_index[i])
+	    {
+	      rv = classifier_acls_set_interface_acl_list (cmp, i, acl_vec);
+	      if (rv)
+		{
+		  clib_warning ("ERROR: Attaching ACL on sw_if_index %u", i);
+		  break;
+		}
+	    }
+	}
+    }
+
+  clib_bitmap_free (seen_acl_bitmap);
+  REPLY_MACRO (VL_API_CLASSIFIER_ACLS_SET_ACL_LIST_REPLY);
+}
+
+
+static void
+  vl_api_classifier_acls_set_interface_t_handler
+  (vl_api_classifier_acls_set_interface_t * mp)
+{
+  classifier_acls_main_t * cmp = &classifier_acls_main;
+  vl_api_classifier_acls_set_interface_reply_t *rmp;
+  vnet_interface_main_t *im = &cmp->vnet_main->interface_main;
+  int rv = 0;
+  u32 sw_if_index = ntohl(mp->sw_if_index);
+
+  if (pool_is_free_index (im->sw_interfaces, sw_if_index))
+    {
+      rv = VNET_API_ERROR_INVALID_SW_IF_INDEX;
+    }
+  if (0 == rv)
+    {
+      rv = classifier_acls_set (cmp, sw_if_index, mp->is_add);
+      if (rv)
+	{
+	  clib_warning ("ERROR: Interface classification on: %u", sw_if_index);
+	}
+    }
+
+  REPLY_MACRO (VL_API_CLASSIFIER_ACLS_SET_INTERFACE_REPLY);
+}
 
 /* API definitions */
 #include <classifier_acls/classifier_acls.api.c>
@@ -220,6 +386,8 @@ static clib_error_t * classifier_acls_init (vlib_main_t * vm)
 
   cmp->vlib_main = vm;
   cmp->vnet_main = vnet_get_main();
+  cmp->acls = 0;
+  cmp->intfs_indexed_by_sw_if_index = 0;
 
   /* Add our API messages to the global name_crc hash table */
   cmp->msg_id_base = setup_message_id_table ();
@@ -256,14 +424,16 @@ VNET_FEATURE_INIT (ip4_classifier_acls, static) =
 {
   .arc_name = "ip4-unicast",
   .node_name = "ip4-classifier-acls",
-  .runs_after = VNET_FEATURES ("abf-input-ip4"),
+  .runs_after = VNET_FEATURES ("acl-plugin-in-ip4-fa"),
+  .runs_before = VNET_FEATURES ("abf-input-ip4","fwabf-input-ip4"),
 };
 
 VNET_FEATURE_INIT (ip6_classifier_acls, static) =
 {
   .arc_name = "ip6-unicast",
   .node_name = "ip6-classifier-acls",
-  .runs_after = VNET_FEATURES ("abf-input-ip6"),
+  .runs_after = VNET_FEATURES ("acl-plugin-in-ip6-fa"),
+  .runs_before = VNET_FEATURES ("abf-input-ip6","fwabf-input-ip6"),
 };
 
 
@@ -277,9 +447,11 @@ VLIB_PLUGIN_REGISTER () =
 
 __clib_export u32
 classifier_acls_classify_packet_api (vlib_buffer_t *b, u32 sw_if_index,
-                                     u8 is_ip6)
+				     u8 is_ip6, u32 *out_acl_index,
+                                     u32 *out_acl_rule_index)
 {
-  return classifier_acls_classify_packet (b, sw_if_index, is_ip6);
+  return classifier_acls_classify_packet (b, sw_if_index, is_ip6,
+                                          out_acl_index, out_acl_rule_index);
 }
 
 /*
