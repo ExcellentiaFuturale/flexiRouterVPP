@@ -59,8 +59,10 @@ mrvl_pp2_input_trace (vlib_main_t * vm, vlib_node_runtime_t * node, u32 next0,
 		      mrvl_pp2_if_t * ppif, struct pp2_ppio_desc *d)
 {
   mrvl_pp2_input_trace_t *tr;
-  vlib_trace_buffer (vm, node, next0, b0,
+  /* vlib_trace_buffer (vm, node, next0, b0, */
+  int result = vlib_trace_buffer (vm, node, next0, b0,
 		     /* follow_chain */ 0);
+  result = 0;
   vlib_set_trace_count (vm, node, --(*n_trace));
   tr = vlib_add_trace (vm, node, b0, sizeof (*tr));
   tr->next_index = next0;

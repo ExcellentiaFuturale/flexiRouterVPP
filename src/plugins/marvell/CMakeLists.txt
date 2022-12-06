@@ -15,12 +15,15 @@ if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
   return()
 endif()
 
-find_path(MUSDK_INCLUDE_DIR NAMES mv_std.h)
-find_library(MUSDK_LIB NAMES libmusdk.a)
+#find_path(MUSDK_INCLUDE_DIR NAMES mv_std.h)
+find_path(MUSDK_INCLUDE_DIR NAMES mv_std.h PATHS /usr/local/include)
+#find_library(MUSDK_LIB NAMES libmusdk.a)
+find_library(MUSDK_LIB NAMES libmusdk.a PATHS /usr/local/lib)
 
 if(MUSDK_INCLUDE_DIR AND MUSDK_LIB)
   get_filename_component(MUSDK_LIB_DIR ${MUSDK_LIB} DIRECTORY)
-  set(MUSDK_LINK_FLAGS "-Wl,--whole-archive,${MUSDK_LIB_DIR}/libmusdk.a,--no-whole-archive")
+  #  set(MUSDK_LINK_FLAGS "-Wl,--whole-archive,${MUSDK_LIB_DIR}/libmusdk.a,--no-whole-archive")
+  set(MUSDK_LINK_FLAGS "-Wl,-rpath -Wl,/usr/local/lib,--whole-archive,${MUSDK_LIB_DIR}/libmusdk.a,--no-whole-archive")
   add_vpp_plugin(marvell
     SOURCES
     plugin.c
