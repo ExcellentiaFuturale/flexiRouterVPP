@@ -153,8 +153,10 @@ ip46_address_get_type (const ip46_address_t * ip)
 always_inline uword
 ip46_address_is_multicast (const ip46_address_t * a)
 {
-  return ip46_address_is_ip4 (a) ? ip4_address_is_multicast (&a->ip4) :
-    ip6_address_is_multicast (&a->ip6);
+  ip4_address_t ip4 = a->ip4;
+  ip6_address_t ip6 = a->ip6;
+  return ip46_address_is_ip4 (a) ? ip4_address_is_multicast (&ip4) :
+    ip6_address_is_multicast (&ip6);
 }
 
 extern void ip4_address_increment (ip4_address_t * i);

@@ -486,7 +486,7 @@ nat44_hairpinning_fn_inline (vlib_main_t * vm,
 	  u32 proto0;
 	  udp_header_t *udp0;
 	  tcp_header_t *tcp0;
-	  u32 sw_if_index0;
+	  CLIB_UNUSED (u32 sw_if_index0);
 
 	  /* speculatively enqueue b0 to the current next frame */
 	  bi0 = from[0];
