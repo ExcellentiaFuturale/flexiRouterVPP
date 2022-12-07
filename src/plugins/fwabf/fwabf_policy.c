@@ -896,7 +896,7 @@ format_link_group (u8 * s, va_list * args)
 {
   fwabf_policy_link_group_t* group   = va_arg (*args, fwabf_policy_link_group_t *);
   u32                        n_links = vec_len(group->links);
-  char*                      s_alg;
+  char*                      s_alg = "";
 
   switch (group->alg)
   {
