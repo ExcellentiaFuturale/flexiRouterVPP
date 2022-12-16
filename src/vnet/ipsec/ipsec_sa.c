@@ -13,6 +13,19 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
+ */
+
+#include <vnet/vnet.h>
+#include <vnet/api_errno.h>
 #include <vnet/ipsec/ipsec.h>
 #include <vnet/ipsec/esp.h>
 #include <vnet/udp/udp_local.h>
@@ -175,6 +188,9 @@ ipsec_sa_add_and_lock (u32 id,
 		       ipsec_integ_alg_t integ_alg,
 		       const ipsec_key_t * ik,
 		       ipsec_sa_flags_t flags,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+		       u16 anti_replay_window_len,
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 		       u32 tx_table_id,
 		       u32 salt,
 		       const ip46_address_t * tun_src,
@@ -349,6 +365,18 @@ ipsec_sa_add_and_lock (u32 id,
 	ipsec_register_udp_port (clib_host_to_net_u16 (sa->udp_hdr.dst_port));
     }
 
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+  if (ipsec_sa_is_set_USE_ANTI_REPLAY (sa) && ipsec_sa_is_set_IS_INBOUND (sa))
+    {
+      if (anti_replay_window_len == 0)
+        anti_replay_window_len = IPSEC_SA_ANTI_REPLAY_WINDOW_SIZE;
+      else if (anti_replay_window_len > IPSEC_SA_ANTI_REPLAY_WINDOW_MAX_SIZE)
+        anti_replay_window_len = IPSEC_SA_ANTI_REPLAY_WINDOW_MAX_SIZE;
+
+      clib_bitmap_alloc (sa->replay_window_bmp, anti_replay_window_len);
+  }
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
+
   hash_set (im->sa_index_by_sa_id, sa->id, sa_index);
 
   if (sa_out_index)
@@ -381,6 +409,12 @@ ipsec_sa_del (ipsec_sa_t * sa)
   vnet_crypto_key_del (vm, sa->crypto_key_index);
   if (sa->integ_alg != IPSEC_INTEG_ALG_NONE)
     vnet_crypto_key_del (vm, sa->integ_key_index);
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+  if (ipsec_sa_is_set_USE_ANTI_REPLAY (sa) && ipsec_sa_is_set_IS_INBOUND (sa))
+    {
+      clib_bitmap_free (sa->replay_window_bmp);
+    }
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
   pool_put (im->sad, sa);
 }
 

@@ -23,6 +23,12 @@
  *   - configurable_esn_and_replay_check : Add support to make Extended
  *     Sequence Number (ESN) and ESP replay check functions configurable
  *     via API/CLI
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
  */
 
 #ifndef __included_ikev2_priv_h__
@@ -407,6 +413,9 @@ typedef struct
 #else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   u8 natt_disabled;
 #endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+  u16 anti_replay_window_len;
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 } ikev2_profile_t;
 
 typedef enum
@@ -659,9 +668,12 @@ int ikev2_set_log_level (ikev2_log_level_t log_level);
 u8 *ikev2_find_ike_notify_payload (ike_header_t * ike, u32 msg_type);
 void ikev2_disable_dpd (void);
 clib_error_t *ikev2_profile_natt_disable (u8 * name);
-#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
-clib_error_t *ikev2_profile_replay_check_update (u8 * name, u8 is_set);
-#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check,
+			   configurable_anti_replay_window_len */
+clib_error_t *ikev2_profile_replay_check_update (u8 * name, u8 is_set,
+                                                 u16 anti_replay_window_len);
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check,
+	  configurable_anti_replay_window_len */
 
 static_always_inline ikev2_main_per_thread_data_t *
 ikev2_get_per_thread_data ()

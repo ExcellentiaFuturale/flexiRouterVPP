@@ -26,6 +26,12 @@
  *   - configurable_esn_and_replay_check : Add support to make Extended
  *     Sequence Number (ESN) and ESP replay check functions configurable
  *     via API/CLI
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
  */
 
 #include <vnet/vnet.h>
@@ -180,6 +186,7 @@ send_profile (ikev2_profile_t * profile, vl_api_registration_t * reg,
   rmp->profile.natt_disabled = profile->natt_disabled;
 #ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
   rmp->profile.replay_check = profile->replay_check;
+  rmp->profile.anti_replay_window_len = profile->anti_replay_window_len;
 #endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
   rmp->profile.ipsec_over_udp_port = profile->ipsec_over_udp_port;
 #ifdef FLEXIWAN_FEATURE
@@ -1000,7 +1007,8 @@ static void
   REPLY_MACRO (VL_API_IKEV2_PROFILE_DISABLE_NATT_REPLY);
 }
 
-#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check,
+			   configurable_anti_replay_window_len */
 static void
   vl_api_ikev2_profile_replay_check_update_t_handler
   (vl_api_ikev2_profile_replay_check_update_t * mp)
@@ -1011,7 +1019,8 @@ static void
   clib_error_t *error;
 
   u8 *tmp = format (0, "%s", mp->name);
-  error = ikev2_profile_replay_check_update (tmp, mp->enable);
+  error = ikev2_profile_replay_check_update
+	  (tmp, mp->enable, clib_net_to_host_u16 (mp->anti_replay_window_len));
   vec_free (tmp);
   if (error)
     {
@@ -1022,7 +1031,8 @@ static void
 
   REPLY_MACRO (VL_API_IKEV2_PROFILE_REPLAY_CHECK_UPDATE_REPLY);
 }
-#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check,
+	  configurable_anti_replay_window_len */
 
 static void
   vl_api_ikev2_initiate_rekey_child_sa_t_handler
