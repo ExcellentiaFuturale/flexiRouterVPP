@@ -33,6 +33,11 @@
  *   - configurable_esn_and_replay_check : Add support to make Extended
  *     Sequence Number (ESN) and ESP replay check functions configurable
  *     via API/CLI
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
 */
 
 #include <vlib/vlib.h>
@@ -1916,6 +1921,9 @@ typedef struct
   u16 ipsec_over_udp_port;
   u16 src_port;
   u16 dst_port;
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+  u16 anti_replay_window_len;
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 } ikev2_add_ipsec_tunnel_args_t;
 
 static void
@@ -1975,7 +1983,12 @@ ikev2_add_tunnel_from_main (ikev2_add_ipsec_tunnel_args_t * a)
 			      a->local_spi,
 			      IPSEC_PROTOCOL_ESP, a->encr_type,
 			      &a->loc_ckey, a->integ_type, &a->loc_ikey,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+			      a->flags, a->anti_replay_window_len, 0,
+			      a->salt_local, &a->local_ip,
+#else /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 			      a->flags, 0, a->salt_local, &a->local_ip,
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 			      &a->remote_ip, TUNNEL_ENCAP_DECAP_FLAG_NONE,
 			      IP_DSCP_CS0, NULL, a->src_port, a->dst_port);
   if (rv)
@@ -1984,7 +1997,12 @@ ikev2_add_tunnel_from_main (ikev2_add_ipsec_tunnel_args_t * a)
   rv = ipsec_sa_add_and_lock (a->remote_sa_id, a->remote_spi,
 			      IPSEC_PROTOCOL_ESP, a->encr_type, &a->rem_ckey,
 			      a->integ_type, &a->rem_ikey,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+			      (a->flags | IPSEC_SA_FLAG_IS_INBOUND),
+			      a->anti_replay_window_len, 0,
+#else /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 			      (a->flags | IPSEC_SA_FLAG_IS_INBOUND), 0,
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 			      a->salt_remote, &a->remote_ip,
 			      &a->local_ip, TUNNEL_ENCAP_DECAP_FLAG_NONE,
 			      IP_DSCP_CS0, NULL,
@@ -2203,6 +2221,18 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
 	  child->time_to_expiration += 1 + (rnd % p->lifetime_jitter);
 	}
     }
+
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+  if (!p && (sa->profile_index != ~0))
+    {
+      p = pool_elt_at_index (km->profiles, sa->profile_index);
+    }
+  if (p)
+    {
+      a.anti_replay_window_len = p->anti_replay_window_len;
+    }
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
+
 #ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check */
   /* Enable replay check only if it is enabled in the profile */
   if (p && !p->replay_check)
@@ -5201,18 +5231,26 @@ ikev2_profile_natt_disable (u8 * name)
   return 0;
 }
 
-#ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check */
+#ifdef FLEXIWAN_FEATURE  /* configurable_esn_and_replay_check,
+			    configurable_anti_replay_window_len */
 clib_error_t *
-ikev2_profile_replay_check_update (u8 * name, u8 is_set)
+ikev2_profile_replay_check_update (u8 * name, u8 is_set,
+				   u16 anti_replay_window_len)
 {
   ikev2_profile_t *p = ikev2_profile_index_by_name (name);
   if (!p)
     return clib_error_return (0, "unknown profile %v", name);
 
+  if (anti_replay_window_len > IPSEC_SA_ANTI_REPLAY_WINDOW_MAX_SIZE)
+    return clib_error_return (0, "Max supported window len is: %u",
+			      IPSEC_SA_ANTI_REPLAY_WINDOW_MAX_SIZE);
+
   p->replay_check = is_set ? 1 : 0;
+  p->anti_replay_window_len = anti_replay_window_len;
   return 0;
 }
-#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check,
+	  configurable_anti_replay_window_len */
 
 static void
 ikev2_mngr_process_ipsec_sa (ipsec_sa_t * ipsec_sa)
