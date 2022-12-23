@@ -21,6 +21,17 @@
  *   threads like cpu.corelist-hqos-threads
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
+ */
+
 #ifndef __IPSEC_SPD_SA_H__
 #define __IPSEC_SPD_SA_H__
 
@@ -29,6 +40,9 @@
 #include <vnet/ip/ip.h>
 #include <vnet/fib/fib_node.h>
 #include <vnet/tunnel/tunnel.h>
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+#include <vppinfra/bitmap.h>
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 
 #define foreach_ipsec_crypto_alg    \
   _ (0, NONE, "none")               \
@@ -132,7 +146,11 @@ typedef struct
   u32 seq_hi;
   u32 last_seq;
   u32 last_seq_hi;
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+  uword *replay_window_bmp;
+#else  /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
   u64 replay_window;
+#endif  /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
   dpo_id_t dpo;
 
   vnet_crypto_key_index_t crypto_key_index;
@@ -266,6 +284,9 @@ extern int ipsec_sa_add_and_lock (u32 id,
 				  ipsec_integ_alg_t integ_alg,
 				  const ipsec_key_t * ik,
 				  ipsec_sa_flags_t flags,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+				  u16 anti_replay_window_len,
+#endif  /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 				  u32 tx_table_id,
 				  u32 salt,
 				  const ip46_address_t * tunnel_src_addr,
@@ -311,6 +332,229 @@ extern uword unformat_ipsec_key (unformat_input_t * input, va_list * args);
  *  Bl = Tl - W + 1
  */
 #define IPSEC_SA_ANTI_REPLAY_WINDOW_LOWER_BOUND(_tl) (_tl - IPSEC_SA_ANTI_REPLAY_WINDOW_SIZE + 1)
+
+
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+
+/*
+ * Below changes are modification of existing replay check functions to make
+ * use of a configurable anti-replay window length
+ */
+#define IPSEC_SA_ANTI_REPLAY_WINDOW_MAX_SIZE (1024)
+#define IPSEC_SA_ANTI_REPLAY_WINDOW_START(_tl, _anti_replay_window_len) (_tl - _anti_replay_window_len + 1)
+
+always_inline int
+ipsec_sa_anti_replay_check (ipsec_sa_t * sa, u32 seq)
+{
+  u32 diff, tl, th;
+
+  if ((sa->flags & IPSEC_SA_FLAG_USE_ANTI_REPLAY) == 0)
+    return 0;
+  u32 anti_replay_window_len =
+    vec_len (sa->replay_window_bmp) * BITS (sa->replay_window_bmp[0]);
+
+  if (!ipsec_sa_is_set_USE_ESN (sa))
+    {
+      if (PREDICT_TRUE (seq > sa->last_seq))
+	return 0;
+
+      diff = sa->last_seq - seq;
+
+      if (anti_replay_window_len > diff)
+	return clib_bitmap_get (sa->replay_window_bmp, diff);
+      else
+	return 1;
+
+      return 0;
+    }
+
+  tl = sa->last_seq;
+  th = sa->last_seq_hi;
+  diff = tl - seq;
+
+  if (PREDICT_TRUE (tl >= (anti_replay_window_len - 1)))
+    {
+      /*
+       * the last sequence number VPP recieved is more than one
+       * window size greater than zero.
+       * Case A from RFC4303 Appendix A.
+       */
+      if (seq < IPSEC_SA_ANTI_REPLAY_WINDOW_START (tl, anti_replay_window_len))
+	{
+	  /*
+	   * the received sequence number is lower than the lower bound
+	   * of the window, this could mean either a replay packet or that
+	   * the high sequence number has wrapped. if it decrypts corrently
+	   * then it's the latter.
+	   */
+	  sa->seq_hi = th + 1;
+	  return 0;
+	}
+      else
+	{
+	  /*
+	   * the recieved sequence number greater than the low
+	   * end of the window.
+	   */
+	  sa->seq_hi = th;
+	  if (seq <= tl)
+	    /*
+	     * The recieved seq number is within bounds of the window
+	     * check if it's a duplicate
+	     */
+	    return clib_bitmap_get (sa->replay_window_bmp, diff);
+	  else
+	    /*
+	     * The received sequence number is greater than the window
+	     * upper bound. this packet will move the window along, assuming
+	     * it decrypts correctly.
+	     */
+	    return 0;
+	}
+    }
+  else
+    {
+      /*
+       * the last sequence number VPP recieved is within one window
+       * size of zero, i.e. 0 < TL < WINDOW_SIZE, the lower bound is thus a
+       * large sequence number.
+       * Note that the check below uses unsiged integer arthimetic, so the
+       * RHS will be a larger number.
+       * Case B from RFC4303 Appendix A.
+       */
+      if (seq < IPSEC_SA_ANTI_REPLAY_WINDOW_START (tl, anti_replay_window_len))
+	{
+	  /*
+	   * the sequence number is less than the lower bound.
+	   */
+	  if (seq <= tl)
+	    {
+	      /*
+	       * the packet is within the window upper bound.
+	       * check for duplicates.
+	       */
+	      sa->seq_hi = th;
+	      return clib_bitmap_get (sa->replay_window_bmp, diff);
+	    }
+	  else
+	    {
+	      /*
+	       * the packet is less the window lower bound or greater than
+	       * the higher bound, depending on how you look at it...
+	       * We're assuming, given that the last sequence number received,
+	       * TL < WINDOW_SIZE, that a largeer seq num is more likely to be
+	       * a packet that moves the window forward, than a packet that has
+	       * wrapped the high sequence again. If it were the latter then
+	       * we've lost close to 2^32 packets.
+	       */
+	      sa->seq_hi = th;
+	      return 0;
+	    }
+	}
+      else
+	{
+	  /*
+	   * the packet seq number is between the lower bound (a large nubmer)
+	   * and MAX_SEQ_NUM. This is in the window since the window upper bound
+	   * tl > 0.
+	   * However, since TL is the other side of 0 to the received
+	   * packet, the SA has moved on to a higher sequence number.
+	   */
+	  sa->seq_hi = th - 1;
+	  return clib_bitmap_get (sa->replay_window_bmp, diff);
+	}
+    }
+
+  return 0;
+}
+
+/*
+ * Anti replay window advance
+ *  inputs need to be in host byte order.
+ */
+always_inline void
+ipsec_sa_anti_replay_advance (ipsec_sa_t * sa, u32 seq)
+{
+  u32 pos;
+  if (PREDICT_TRUE (sa->flags & IPSEC_SA_FLAG_USE_ANTI_REPLAY) == 0)
+    return;
+
+  u32 anti_replay_window_len =
+    vec_len (sa->replay_window_bmp) * BITS (sa->replay_window_bmp[0]);
+  if (PREDICT_TRUE (sa->flags & IPSEC_SA_FLAG_USE_ESN))
+    {
+      int wrap = sa->seq_hi - sa->last_seq_hi;
+
+      if (wrap == 0 && seq > sa->last_seq)
+	{
+	  pos = seq - sa->last_seq;
+	  if (pos < anti_replay_window_len)
+	    {
+	      clib_bitmap_shift_left (sa->replay_window_bmp, pos);
+	      clib_bitmap_set (sa->replay_window_bmp, 0, 1);
+	    }
+	  else
+	    {
+	      clib_bitmap_zero (sa->replay_window_bmp);
+	      clib_bitmap_set (sa->replay_window_bmp, 0, 1);
+	    }
+	  sa->last_seq = seq;
+	}
+      else if (wrap > 0)
+	{
+	  pos = ~seq + sa->last_seq + 1;
+	  if (pos < anti_replay_window_len)
+	    {
+	      clib_bitmap_shift_left (sa->replay_window_bmp, pos);
+	      clib_bitmap_set (sa->replay_window_bmp, 0, 1);
+	    }
+	  else
+	    {
+	      clib_bitmap_zero (sa->replay_window_bmp);
+	      clib_bitmap_set (sa->replay_window_bmp, 0, 1);
+
+	    }
+	  sa->last_seq = seq;
+	  sa->last_seq_hi = sa->seq_hi;
+	}
+      else if (wrap < 0)
+	{
+	  pos = ~seq + sa->last_seq + 1;
+	  clib_bitmap_set (sa->replay_window_bmp, pos, 1);
+	}
+      else
+	{
+	  pos = sa->last_seq - seq;
+	  clib_bitmap_set (sa->replay_window_bmp, pos, 1);
+	}
+    }
+  else
+    {
+      if (seq > sa->last_seq)
+	{
+	  pos = seq - sa->last_seq;
+	  if (pos < anti_replay_window_len)
+	    {
+	      clib_bitmap_shift_left (sa->replay_window_bmp, pos);
+	      clib_bitmap_set (sa->replay_window_bmp, 0, 1);
+	    }
+	  else
+	    {
+	      clib_bitmap_zero (sa->replay_window_bmp);
+	      clib_bitmap_set (sa->replay_window_bmp, 0, 1);
+
+	    }
+	  sa->last_seq = seq;
+	}
+      else
+	{
+	  pos = sa->last_seq - seq;
+	  clib_bitmap_set (sa->replay_window_bmp, pos, 1);
+	}
+    }
+}
+
+#else  /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 
 /*
  * Anti replay check.
@@ -503,6 +747,7 @@ ipsec_sa_anti_replay_advance (ipsec_sa_t * sa, u32 seq)
     }
 }
 
+#endif  /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 
 /*
  * Makes choice for thread_id should be assigned.

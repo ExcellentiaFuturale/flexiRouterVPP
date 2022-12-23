@@ -17,6 +17,17 @@
  *------------------------------------------------------------------
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
+ */
+
 #include <vat/vat.h>
 #include <vlib/pci/pci.h>
 #include <vpp/api/types.h>
@@ -11192,7 +11203,12 @@ vl_api_ipsec_sa_details_t_handler (vl_api_ipsec_sa_details_t * mp)
 	 "crypto_key %U integ_alg %u integ_key %U flags %x "
 	 "tunnel_src_addr %U tunnel_dst_addr %U "
 	 "salt %u seq_outbound %lu last_seq_inbound %lu "
-	 "replay_window %lu stat_index %u\n",
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+	 "\nreplay_window %U\n"
+#else /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
+	 "replay_window %lu "
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
+	 "stat_index %u\n",
 	 ntohl (mp->entry.sad_id),
 	 ntohl (mp->sw_if_index),
 	 ntohl (mp->entry.spi),
@@ -11206,7 +11222,12 @@ vl_api_ipsec_sa_details_t_handler (vl_api_ipsec_sa_details_t * mp)
 	 &mp->entry.tunnel_dst, ntohl (mp->salt),
 	 clib_net_to_host_u64 (mp->seq_outbound),
 	 clib_net_to_host_u64 (mp->last_seq_inbound),
-	 clib_net_to_host_u64 (mp->replay_window), ntohl (mp->stat_index));
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+	 format_hex_bytes, mp->replay_window.data, mp->replay_window.length,
+#else /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
+	 clib_net_to_host_u64 (mp->replay_window),
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
+	 ntohl (mp->stat_index));
 }
 
 #define vl_api_ipsec_sa_details_t_endian vl_noop_handler
@@ -11252,8 +11273,13 @@ static void vl_api_ipsec_sa_details_t_handler_json
 			     mp->entry.integrity_key.length);
   vat_json_object_add_address (node, "src", &mp->entry.tunnel_src);
   vat_json_object_add_address (node, "dst", &mp->entry.tunnel_dst);
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+  vat_json_object_add_bytes (node, "replay_window", mp->replay_window.data,
+			     mp->replay_window.length);
+#else /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
   vat_json_object_add_uint (node, "replay_window",
 			    clib_net_to_host_u64 (mp->replay_window));
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
   vat_json_object_add_uint (node, "stat_index", ntohl (mp->stat_index));
 }
 

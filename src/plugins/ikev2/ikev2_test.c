@@ -22,6 +22,12 @@
  *   - configurable_esn_and_replay_check : Add support to make Extended
  *     Sequence Number (ESN) and ESP replay check functions configurable
  *     via API/CLI
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
  */
 
 #include <vat/vat.h>
@@ -241,7 +247,8 @@ api_ikev2_profile_disable_natt (vat_main_t * vam)
 }
 
 
-#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check,
+                           configurable_anti_replay_window_len */
 static int
 api_ikev2_profile_replay_check_update (vat_main_t * vam)
 {
@@ -249,13 +256,14 @@ api_ikev2_profile_replay_check_update (vat_main_t * vam)
   vl_api_ikev2_profile_replay_check_update_t *mp;
   u8 *name = 0;
   u32 enable = ~0;
+  u16 anti_replay_window_len = 0;
   int ret;
 
   while (unformat_check_input (i) != UNFORMAT_END_OF_INPUT)
     {
       if (unformat (i, "name %U", unformat_token, valid_chars, &name))
 	vec_add1 (name, 0);
-      else if (unformat (i, "on"))
+      else if (unformat (i, "on window-len %u", &anti_replay_window_len))
 	enable = 1;
       else if (unformat (i, "off"))
 	enable = 0;
@@ -284,18 +292,26 @@ api_ikev2_profile_replay_check_update (vat_main_t * vam)
       return -99;
     }
 
+  if (anti_replay_window_len > IPSEC_SA_ANTI_REPLAY_WINDOW_MAX_SIZE)
+    {
+      errmsg ("Window len is greater than max supported value %u",
+	      IPSEC_SA_ANTI_REPLAY_WINDOW_MAX_SIZE);
+      return -99;
+    }
 
   M (IKEV2_PROFILE_REPLAY_CHECK_UPDATE, mp);
 
   clib_memcpy (mp->name, name, vec_len (name));
   vec_free (name);
   mp->enable = enable;
+  mp->anti_replay_window_len = clib_host_to_net_u16 (anti_replay_window_len);
 
   S (mp);
   W (ret);
   return ret;
 }
-#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check,
+                             configurable_anti_replay_window_len */
 
 static int
 api_ikev2_profile_dump (vat_main_t * vam)
@@ -389,12 +405,15 @@ static void vl_api_ikev2_profile_details_t_handler
   if (p->natt_disabled)
     fformat (vam->ofp, "  NAT-T disabled\n");
 
-#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check */
+#ifdef FLEXIWAN_FEATURE /* configurable_esn_and_replay_check,
+                           configurable_anti_replay_window_len */
     if (p->replay_check)
-      fformat(vam->ofp, "  Replay check On");
+      fformat(vam->ofp, "  Replay check On with window-len %u\n",
+	      clib_net_to_host_u16 (p->anti_replay_window_len));
     else
-      fformat(vam->ofp, "  Replay check Off");
-#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+      fformat(vam->ofp, "  Replay check Off\n");
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check,
+                             configurable_anti_replay_window_len */
 
   u32 ipsec_over_udp_port = clib_net_to_host_u16 (p->ipsec_over_udp_port);
   if (ipsec_over_udp_port != IPSEC_UDP_PORT_NONE)

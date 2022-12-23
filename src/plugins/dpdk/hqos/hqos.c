@@ -851,7 +851,7 @@ dpdk_port_setup_hqos (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos)
     {
       u32 swq_flags = RING_F_SP_ENQ | RING_F_SC_DEQ;
 
-      snprintf (name, sizeof (name), "SWQ-worker%u-to-device%u", i,
+      snprintf (name, sizeof (name), "SWQ-worker%u-to-device%hu", i,
 		xd->port_id);
       xd->hqos_ht->swq[i] =
 	rte_ring_create (name, hqos->swq_size, xd->cpu_socket, swq_flags);

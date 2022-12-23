@@ -21,6 +21,12 @@
  *   - New parameter for ipip_add_tunnel() API - GW - to accomodate path selection policy for peer
  *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
  *     default route.
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
  */
 
 #include <vnet/vnet.h>
@@ -205,6 +211,9 @@ ipsec_sa_add_del_command_fn (vlib_main_t * vm,
 	}
       rv = ipsec_sa_add_and_lock (id, spi, proto, crypto_alg,
 				  &ck, integ_alg, &ik, flags,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+				  0, /*anti replay window len - use default */
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 				  tx_table_id, clib_host_to_net_u32 (salt),
 				  &tun_src, &tun_dst,
 				  TUNNEL_ENCAP_DECAP_FLAG_NONE, dscp,
@@ -938,7 +947,13 @@ create_ipsec_tunnel_command_fn (vlib_main_t * vm,
       rv |=
 	ipsec_sa_add_and_lock (ipsec_tun_mk_local_sa_id (sw_if_index),
 			       local_spi, IPSEC_PROTOCOL_ESP, crypto_alg,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+			       &lck, integ_alg, &lik, flags,
+                               0, /*anti replay window len - use default */
+			       table_id,
+#else /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 			       &lck, integ_alg, &lik, flags, table_id,
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 			       clib_host_to_net_u32 (salt), &local_ip,
 			       &remote_ip, TUNNEL_ENCAP_DECAP_FLAG_NONE,
 			       IP_DSCP_CS0, NULL,
@@ -947,7 +962,13 @@ create_ipsec_tunnel_command_fn (vlib_main_t * vm,
 	ipsec_sa_add_and_lock (ipsec_tun_mk_remote_sa_id (sw_if_index),
 			       remote_spi, IPSEC_PROTOCOL_ESP, crypto_alg,
 			       &rck, integ_alg, &rik,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+			       (flags | IPSEC_SA_FLAG_IS_INBOUND),
+                               0, /*anti replay window len - use default */
+			       table_id,
+#else /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 			       (flags | IPSEC_SA_FLAG_IS_INBOUND), table_id,
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 			       clib_host_to_net_u32 (salt), &remote_ip,
 			       &local_ip, TUNNEL_ENCAP_DECAP_FLAG_NONE,
 			       IP_DSCP_CS0, NULL,

@@ -81,7 +81,7 @@ static int api_classifier_acls_set_interface_acl_list (vat_main_t * vam)
     u32 sw_if_index = ~0;
     u32 *acls = 0;
     u32 acl_index;
-    int ret;
+    int ret = 0;
 
     /*
      * classifier_acls_set_interface_acl_list sw_if_index <if-idx> acls <list>
