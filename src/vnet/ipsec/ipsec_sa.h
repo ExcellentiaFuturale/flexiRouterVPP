@@ -758,7 +758,7 @@ always_inline u32
 ipsec_sa_assign_thread (u32 thread_id, u32 first_worker_index, u32 num_workers)
 {
   return ((thread_id) ? thread_id
-	  : (first_worker_index + (unix_time_now_nsec () % num_workers)));
+	  : ((num_workers) ? (first_worker_index + (unix_time_now_nsec () % num_workers)) : thread_id));
 }
 #else  /* FLEXIWAN_FIX - fix_crypto_worker_assignment */
 always_inline u32
