@@ -156,7 +156,7 @@ typedef struct
 #endif
 #ifdef FLEXIWAN_FEATURE
   u16 src_port;
-  u16 dst_port;
+  u16 dest_port;
 #endif
 
   /**
@@ -265,7 +265,7 @@ typedef struct
 #ifdef FLEXIWAN_FEATURE
   /* adding dest port for vxlan tunnel in case destination behind NAT */
   u16 src_port;
-  u16 dst_port;
+  u16 dest_port;
 #endif
 
 #ifdef FLEXIWAN_FEATURE /* acl_based_classification */
@@ -338,11 +338,11 @@ vxlan4_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache4 * cache, u16 * cache_
       u32 instance = vxm->tunnel_index_by_sw_if_index[di.sw_if_index];
       vxlan_tunnel_t *t0 = pool_elt_at_index (vxm->tunnels, instance);
       /* Compare the configured VXLAN tunnel destination port (dst_port) against the received VXLAN packet's source port:
-         tunnel.dst_port == packet.src_port: the UDP session is correct and packets decap and processed. 
-         tunnel.dst_port != packet.src_port: the UDP session is not correct because of ports mistmatch and packets
+         tunnel.dest_port == packet.src_port: the UDP session is correct and packets decap and processed. 
+         tunnel.dest_port != packet.src_port: the UDP session is not correct because of ports mistmatch and packets
                             must be punted to the flexiagent application. 
        */
-      if (PREDICT_FALSE (t0->dst_port != src_port))
+      if (PREDICT_FALSE (t0->dest_port != src_port))
         return decap_not_found;
 
       *cache = key4;

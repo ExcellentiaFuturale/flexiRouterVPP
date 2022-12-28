@@ -176,7 +176,7 @@ vxlan6_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache6 * cache,
   if (PREDICT_TRUE (ip6_address_is_equal (&ip6_0->dst_address, &t0->src.ip6)))
     {
       /* Validate VXLAN tunnel destination port against packet source port */
-      if (PREDICT_FALSE (t0->dst_port != clib_net_to_host_u16(udp0->src_port)))
+      if (PREDICT_FALSE (t0->dest_port != clib_net_to_host_u16(udp0->src_port)))
         return decap_not_found;
       *stats_sw_if_index = t0->sw_if_index;
     }
@@ -197,7 +197,7 @@ vxlan6_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache6 * cache,
       vxlan_tunnel_t *mcast_t0 = pool_elt_at_index (vxm->tunnels, key6.value);
 
       /* Validate VXLAN tunnel destination port against packet source port */
-      if (PREDICT_FALSE (mcast_t0->dst_port != clib_net_to_host_u16(udp0->src_port)))
+      if (PREDICT_FALSE (mcast_t0->dest_port != clib_net_to_host_u16(udp0->src_port)))
         return decap_not_found;
 
       *stats_sw_if_index = mcast_t0->sw_if_index;

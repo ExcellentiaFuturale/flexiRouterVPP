@@ -78,11 +78,11 @@ format_vxlan_tunnel (u8 * s, va_list * args)
 
 #ifdef FLEXIWAN_FEATURE
      s = format (s,
-	      "[%d] instance %d src %U dst %U src_port %d dst_port %d vni %d fib-idx %d sw-if-idx %d",
+	      "[%d] instance %d src %U dst %U src_port %d dest_port %d vni %d fib-idx %d sw-if-idx %d",
 	      t->dev_instance, t->user_instance,
 	      format_ip46_address, &t->src, IP46_TYPE_ANY,
 	      format_ip46_address, &t->dst, IP46_TYPE_ANY,
-        t->src_port, t->dst_port,
+        t->src_port, t->dest_port,
 	      t->vni, t->encap_fib_index, t->sw_if_index);
 #else
      s = format (s,
@@ -277,7 +277,7 @@ _(decap_next_index)                             \
 _(src)                                          \
 _(dst)                                          \
 _(src_port)                                     \
-_(dst_port)                                     \
+_(dest_port)                                     \
 _(qos_hierarchy_id)
 #else /* FLEXIWAN_FEATURE - acl_based_classification */
 #define foreach_copy_field                      \
@@ -287,7 +287,7 @@ _(encap_fib_index)                              \
 _(decap_next_index)                             \
 _(src)                                          \
 _(dst)                                          \
-_(dst_port)
+_(dest_port)
 #endif /* FLEXIWAN_FEATURE - acl_based_classification */
 
 static void
@@ -335,7 +335,7 @@ vxlan_rewrite (vxlan_tunnel_t * t, bool is_ip6)
   /* UDP header, randomize src port on something, maybe? */
   udp->src_port = clib_host_to_net_u16 (t->src_port);
 #ifdef FLEXIWAN_FEATURE
-  udp->dst_port = clib_host_to_net_u16 (t->dst_port);
+  udp->dst_port = clib_host_to_net_u16 (t->dest_port);
 #else
   udp->dst_port = clib_host_to_net_u16 (UDP_DST_PORT_vxlan);
 #endif
@@ -413,11 +413,12 @@ int vnet_vxlan_add_del_tunnel
   u32 is_ip6 = a->is_ip6;
 
   /* Set udp-ports */
+  if (a->dest_port ==0)
+    a->dest_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
   if (a->src_port == 0)
-    a->src_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
-  if (a->dst_port ==0)
-    a->dst_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
-
+    // a->src_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
+    a->src_port = a->dest_port
+  
   int not_found;
   if (!is_ip6)
     {
@@ -791,7 +792,7 @@ vxlan_add_del_tunnel_command_fn (vlib_main_t * vm,
   u32 vni = 0;
 #ifdef FLEXIWAN_FEATURE
   u32 src_port = 0;
-  u32 dst_port = 0;
+  u32 dest_port = 0;
 #endif
 
 #ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
@@ -846,7 +847,7 @@ vxlan_add_del_tunnel_command_fn (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE
       else if (unformat (line_input, "src_port %d", &src_port))
   ;
-      else if (unformat (line_input, "dst_port %d", &dst_port))
+      else if (unformat (line_input, "dest_port %d", &dest_port))
   ;
 #endif
 
@@ -969,7 +970,7 @@ VLIB_CLI_COMMAND (create_vxlan_tunnel_command, static) = {
   "create vxlan tunnel src <local-vtep-addr>"
   " {dst <remote-vtep-addr>|group <mcast-vtep-addr> <intf-name>} vni <nn>"
 #ifdef FLEXIWAN_FEATURE
-  " [src_port <local-vtep-udp-port>] [dst_port <remote-vtep-udp-port>]"
+  " [src_port <local-vtep-udp-port>] [dest_port <remote-vtep-udp-port>]"
 #endif
   " [instance <id>]"
   " [encap-vrf-id <nn>] [decap-next [l2|node <name>]] [del]",
@@ -1024,7 +1025,7 @@ show_vxlan_tunnel_command_fn (vlib_main_t * vm,
  * @cliexpar
  * Example of how to display the VXLAN Tunnel entries:
  * @cliexstart{show vxlan tunnel}
- * [0] src 10.0.3.1 dst 10.0.3.3 src_port 4789 dst_port 4789 vni 13 
+ * [0] src 10.0.3.1 dst 10.0.3.3 src_port 4789 dest_port 4789 vni 13 
  * encap_fib_index 0 sw_if_index 5 decap_next l2
  * @cliexend
  ?*/

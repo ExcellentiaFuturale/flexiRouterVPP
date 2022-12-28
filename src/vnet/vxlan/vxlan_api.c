@@ -189,7 +189,7 @@ static void vl_api_vxlan_add_del_tunnel_t_handler
 #endif /* FLEXIWAN_FEATURE */
 #ifdef FLEXIWAN_FEATURE
     .src_port = clib_net_to_host_u16 (mp->src_port),
-    .dst_port = clib_net_to_host_u16 (mp->dst_port),
+    .dest_port = clib_net_to_host_u16 (mp->dest_port),
 #endif
 
 #ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
@@ -199,10 +199,11 @@ static void vl_api_vxlan_add_del_tunnel_t_handler
 
 #ifdef FLEXIWAN_FEATURE
   /* set default port if none is provided */
+  if (a.dest_port == 0)
+    a.dest_port = UDP_DST_PORT_vxlan;
   if (a.src_port == 0)
-    a.src_port = UDP_DST_PORT_vxlan;
-  if (a.dst_port == 0)
-    a.dst_port = UDP_DST_PORT_vxlan;
+    // a.src_port = UDP_DST_PORT_vxlan;
+    a.src_port = a.dest_port
 #endif
   /* Check src & dst are different */
   if (ip46_address_cmp (&a.dst, &a.src) == 0)
@@ -256,7 +257,7 @@ static void send_vxlan_tunnel_details
   rmp->context = context;
 #ifdef FLEXIWAN_FEATURE
   rmp->src_port = clib_host_to_net_u16(t->src_port);
-  rmp->dst_port = clib_host_to_net_u16(t->dst_port);
+  rmp->dest_port = clib_host_to_net_u16(t->dest_port);
 #endif
 
   vl_api_send_msg (reg, (u8 *) rmp);

@@ -42,7 +42,7 @@ import "vnet/ip/ip_types.api";
     @param decap_next_index - index of decap next graph node
     @param vni - The VXLAN Network Identifier, uint24
     @param src_port - Source UDP port. It is not included in sent packets. Used only for port registration
-    @param dst_port - Destination UDP port
+    @param dest_port - Destination UDP port
     #ifdef FLEXIWAN_FEATURE  acl_based_classification
     @param qos_hierarchy_id - Represents the tunnel in hierarchical QoS
     #endif FLEXIWAN_FEATURE - acl_based_classification
@@ -62,7 +62,7 @@ define vxlan_add_del_tunnel
   u32 next_hop_sw_if_index;
   vl_api_address_t next_hop_ip;
   u16 src_port;
-  u16 dst_port;
+  u16 dest_port;
   u16 qos_hierarchy_id;
 };
 
@@ -92,7 +92,7 @@ define vxlan_tunnel_details
   u32 decap_next_index;
   u32 vni;
   u16 src_port;
-  u16 dst_port;
+  u16 dest_port;
 };
 
 /** \brief Interface set vxlan-bypass request

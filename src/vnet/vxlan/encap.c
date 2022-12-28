@@ -20,10 +20,7 @@
  *   - Use of a specific source port for VxLan src port - enables full NAT traversal
  *   - The source port is defined at /etc/flexiwan/agent/fwagent_conf.yaml
  *      vxlan:
- *         src_port: 4000          # VXLAN UDP local source port (UDP listening port)
- *         dst_port: 5000          # VXLAN UDP remote source port (UDP destination port)
- *         default_src_port: 4789  # Default VXLAN UDP source port
- *         default_dst_port: 4789  # Default VXLAN UDP destination port
+ *         port: 4789          # VXLAN UDP port
  *   - Add destination port for vxlan tunnel, if remote device is behind NAT. Port is
  *     provisioned by fleximanage when creating the tunnel.
  *
@@ -309,8 +306,8 @@ vxlan_encap_inline (vlib_main_t * vm,
 #endif /* FLEXIWAN_FIX */
 #ifdef FLEXIWAN_FEATURE
 /* setting dest port provisioned my fleximanage, if dest behind NAT */
-          udp0->dst_port = clib_host_to_net_u16(t0->dst_port);
-          udp1->dst_port = clib_host_to_net_u16(t1->dst_port);
+          udp0->dst_port = clib_host_to_net_u16(t0->dest_port);
+          udp1->dst_port = clib_host_to_net_u16(t1->dest_port);
 #endif
 #ifdef FLEXIWAN_FIX
 		  /* Escape nat-ing on vxlan tunnel traffic, as it is not exposed to internet.
@@ -512,7 +509,7 @@ vxlan_encap_inline (vlib_main_t * vm,
 #endif /* FLEXIWAN_FIX */
 #ifdef FLEXIWAN_FEATURE
           /* setting dest port provisioned by flexiManage, if dest behind NAT */
-          udp0->dst_port = clib_host_to_net_u16(t0->dst_port);
+          udp0->dst_port = clib_host_to_net_u16(t0->dest_port);
 		  /* Escape nat-ing on vxlan tunnel traffic, as it is not exposed to internet.
 		     Nat binds all tunnel traffic to one worker thread,
 			 negating thus multi-core advantage.
