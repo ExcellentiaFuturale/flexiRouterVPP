@@ -416,8 +416,8 @@ int vnet_vxlan_add_del_tunnel
   if (a->dest_port ==0)
     a->dest_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
   if (a->src_port == 0)
-    // a->src_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
-    a->src_port = a->dest_port;
+    a->src_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
+    //a->src_port = a->dest_port;
   
   int not_found;
   if (!is_ip6)
