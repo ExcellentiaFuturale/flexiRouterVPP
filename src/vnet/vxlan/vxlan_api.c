@@ -203,7 +203,7 @@ static void vl_api_vxlan_add_del_tunnel_t_handler
     a.dest_port = UDP_DST_PORT_vxlan;
   if (a.src_port == 0)
     // a.src_port = UDP_DST_PORT_vxlan;
-    a.src_port = a.dest_port
+    a.src_port = a.dest_port;
 #endif
   /* Check src & dst are different */
   if (ip46_address_cmp (&a.dst, &a.src) == 0)
