@@ -23,6 +23,9 @@
  *     3.Prevent presence of dynamic translation from stopping the addition of
  *       nat44 static mapping in endpoint-dependent mode
  *
+ *   - assign_worker_for_fragmented_packets : Make the worker thread selection
+ *   code to use port information from fragmentation-metada
+ *
  */
 
 /*
@@ -4050,10 +4053,17 @@ nat44_ed_get_worker_out2in_cb (vlib_buffer_t * b, ip4_header_t * ip,
 
   if (PREDICT_TRUE (proto == NAT_PROTOCOL_UDP || proto == NAT_PROTOCOL_TCP))
     {
+#ifdef FLEXIWAN_FIX /* assign_worker_for_fragmented_packets */
+      init_ed_k (&kv16, ip->dst_address,
+                 vnet_buffer (b)->ip.reass.l4_dst_port, ip->src_address,
+                 vnet_buffer (b)->ip.reass.l4_src_port, rx_fib_index,
+                 ip->protocol);
+#else /* FLEXIWAN_FIX - assign_worker_for_fragmented_packets */
       udp = ip4_next_header (ip);
 
       init_ed_k (&kv16, ip->dst_address, udp->dst_port, ip->src_address,
 		 udp->src_port, rx_fib_index, ip->protocol);
+#endif /* FLEXIWAN_FIX - assign_worker_for_fragmented_packets */
 
       if (PREDICT_TRUE (!clib_bihash_search_16_8 (&sm->out2in_ed,
 						  &kv16, &value16)))
@@ -4117,7 +4127,11 @@ nat44_ed_get_worker_out2in_cb (vlib_buffer_t * b, ip4_header_t * ip,
     }
 
   udp = ip4_next_header (ip);
+#ifdef FLEXIWAN_FIX /* assign_worker_for_fragmented_packets */
+  port = vnet_buffer (b)->ip.reass.l4_dst_port;
+#else /* FLEXIWAN_FIX - assign_worker_for_fragmented_packets */
   port = udp->dst_port;
+#endif /* FLEXIWAN_FIX - assign_worker_for_fragmented_packets */
 
   if (PREDICT_FALSE (ip->protocol == IP_PROTOCOL_ICMP))
     {
