@@ -14,7 +14,7 @@
  */
 
 /*
- * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ * List of features and fixes made for FlexiWAN (denoted by FLEXIWAN_FEATURE and FLEXIWAN_FIX flags):
  *  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
  *    currently in deprecated state. It is likely deprecated as changes
  *    in DPDK scheduler APIs required corresponding changes from VPP side.
@@ -32,7 +32,11 @@
  *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
  *    to make use of DPDK interface feature like QoS.
  *
- * 
+ *  - call vlib_buffer_worker_init : if VPP is configured to use cores, and HQoS is enabled,
+ *    there will be no worker threads, as one core will be used for main thread and other - for HQoS.
+ *    In this case, the multi-threading data structures will be not initialized. But some of them,
+ *    like per thread buffer pools, are used by the HQoS thread. So we have to initialize them manually.
+ *  
  * This deprecated file is enhanced and added as part of the
  * flexiwan feature - integrating_dpdk_qos_sched
  * Location of deprecated file: extras/deprecated/dpdk-hqos/hqos.c 
@@ -1163,6 +1167,14 @@ dpdk_hqos_thread_fn (void *arg)
 {
   vlib_worker_thread_t *w = (vlib_worker_thread_t *) arg;
   vlib_worker_thread_init (w);
+#ifdef FLEXIWAN_FIX /* call vlib_buffer_worker_init */
+  {
+    clib_error_t* vlib_buffer_worker_init (vlib_main_t * vm);
+    vlib_main_t *vm;
+    vm = vlib_get_main ();
+    vlib_buffer_worker_init(vm);
+  }
+#endif /* FLEXIWAN_FIX call vlib_buffer_worker_init */
   dpdk_hqos_thread (w);
 }
 
