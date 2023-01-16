@@ -13,6 +13,17 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
+ */
+
 /**
  * Encode/decode function from/to API to internal types
  */
@@ -41,6 +52,9 @@ extern void ipsec_key_encode (const ipsec_key_t * in, vl_api_key_t * out);
 extern ipsec_sa_flags_t ipsec_sa_flags_decode (vl_api_ipsec_sad_flags_t in);
 extern vl_api_ipsec_sad_flags_t ipsec_sad_flags_encode (const ipsec_sa_t *
 							sa);
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+extern void ipsec_replay_window_encode (const uword * in, vl_api_key_t * out);
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 
 #endif
 

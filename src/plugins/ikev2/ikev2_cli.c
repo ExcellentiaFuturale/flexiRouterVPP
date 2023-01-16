@@ -24,6 +24,12 @@
  *   - configurable_esn_and_replay_check : Add support to make Extended
  *     Sequence Number (ESN) and ESP replay check functions configurable
  *     via API/CLI
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
  */
 
 #include <vlib/vlib.h>
@@ -579,20 +585,22 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
 	  goto done;
 	}
 #endif
-#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
-      else if (unformat (line_input, "set %U replay-check on",
-			 unformat_ikev2_token, &name))
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check,
+			     configurable_anti_replay_window_len */
+      else if (unformat (line_input, "set %U replay-check on window-len %u",
+			 unformat_ikev2_token, &name, &tmp1))
 	{
-	  r = ikev2_profile_replay_check_update (name, 1);
+	  r = ikev2_profile_replay_check_update (name, 1, (u16) tmp1);
 	  goto done;
 	}
       else if (unformat (line_input, "set %U replay-check off",
 			 unformat_ikev2_token, &name))
 	{
-	  r = ikev2_profile_replay_check_update (name, 0);
+	  r = ikev2_profile_replay_check_update (name, 0, 0);
 	  goto done;
 	}
-#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check,
+	  configurable_anti_replay_window_len */
 
       else if (unformat (line_input, "set %U disable natt",
 			 unformat_ikev2_token, &name))
@@ -631,7 +639,7 @@ VLIB_CLI_COMMAND (ikev2_profile_add_del_command, static) = {
     "ikev2 profile set <id> ike-crypto-alg <crypto alg> <key size> ike-integ-alg <integ alg> ike-dh <dh type>\n"
 #ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
     "ikev2 profile set <id> esp-crypto-alg <crypto alg> <key size> [esp-integ-alg <integ alg>] [esn <yes|no>]\n"
-    "ikev2 profile set <id> replay-check <on|off>\n"
+    "ikev2 profile set <id> replay-check <on|off> window-len <Max 1024>\n"
 #else /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
     "ikev2 profile set <id> esp-crypto-alg <crypto alg> <key size> "
       "[esp-integ-alg <integ alg>]\n"
@@ -699,12 +707,15 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
     if (p->natt_disabled)
       vlib_cli_output(vm, "  NAT-T disabled");
 
-#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check */
+#ifdef FLEXIWAN_FEATURE   /* configurable_esn_and_replay_check,
+                             configurable_anti_replay_window_len */
     if (p->replay_check)
-      vlib_cli_output(vm, "  Replay check On");
+      vlib_cli_output(vm, "  Replay check On with window len: %u",
+		      p->anti_replay_window_len);
     else
       vlib_cli_output(vm, "  Replay check Off");
-#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
+#endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check,
+                             configurable_anti_replay_window_len */
     if (p->ipsec_over_udp_port != IPSEC_UDP_PORT_NONE)
       vlib_cli_output(vm, "  ipsec-over-udp port %d", p->ipsec_over_udp_port);
 

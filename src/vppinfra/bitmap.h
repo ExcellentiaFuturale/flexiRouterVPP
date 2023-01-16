@@ -35,6 +35,17 @@
   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
+ */
+
 #ifndef included_clib_bitmap_h
 #define included_clib_bitmap_h
 
@@ -351,6 +362,50 @@ clib_bitmap_set_region (uword * bitmap, uword i, uword value, uword n_bits)
 
   return bitmap;
 }
+
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+
+/** Left shifts the bitmap by n_bits
+    @param bitmap - pointer to the bitmap
+    @param n_bits - the number of bit positions to be left shifted
+*/
+always_inline void
+clib_bitmap_shift_left (uword * bitmap, uword n_bits)
+{
+  uword bitmap_len_words = vec_len (bitmap);
+  if (n_bits >= (bitmap_len_words * sizeof (uword)))
+    {
+      /* if n_bits is greater than bitmap size, reset the bitmap to zero */
+      clib_bitmap_zero (bitmap);
+      return;
+    }
+
+  uword start_word_index = n_bits / BITS (bitmap[0]);
+  uword mask_bits = n_bits % BITS (bitmap[0]);
+  uword upper, lower;
+  int i;
+
+  for (i = bitmap_len_words - start_word_index - 1; i >= 0; i--)
+    {
+      /*
+       * If n_bits not uword aligned, the shift will have to take upper word
+       * as shift_left by mask_bits and fill the shifted space from next word
+       */
+      upper = bitmap[i] << mask_bits;
+
+      if (mask_bits && i > 0)
+        lower = bitmap[i - 1] >> (BITS(bitmap[0]) - mask_bits);
+      else
+        lower = 0;
+
+      bitmap[i + start_word_index] = lower | upper;
+    }
+  if (start_word_index)
+    /* Reset the shifted out words by zero */
+    clib_memset (bitmap, 0, start_word_index * sizeof (uword));
+}
+
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 
 /** Macro to iterate across set bits in a bitmap
 

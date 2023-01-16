@@ -23,6 +23,12 @@
  *   - New parameter for ipip_add_tunnel() API - GW - to accomodate path selection policy for peer
  *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
  *     default route.
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
  */
 
 #include <vnet/vnet.h>
@@ -390,6 +396,9 @@ static void vl_api_ipsec_sad_entry_add_del_t_handler
     rv = ipsec_sa_add_and_lock (id, spi, proto,
 				crypto_alg, &crypto_key,
 				integ_alg, &integ_key, flags,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+                                0, /*anti replay window len - use default */
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 				0, mp->entry.salt, &tun_src, &tun_dst,
 				TUNNEL_ENCAP_DECAP_FLAG_NONE,
 				IP_DSCP_CS0,
@@ -467,6 +476,9 @@ static void vl_api_ipsec_sad_entry_add_del_v2_t_handler
     rv = ipsec_sa_add_and_lock (id, spi, proto,
 				crypto_alg, &crypto_key,
 				integ_alg, &integ_key, flags,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+                                0, /*anti replay window len - use default */
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 				0, mp->entry.salt, &tun_src, &tun_dst,
 				tunnel_flags,
 				ip_dscp_decode (mp->entry.dscp),
@@ -765,6 +777,9 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 				  mp->integ_alg,
 				  &integ_key,
 				  (flags | IPSEC_SA_FLAG_IS_INBOUND),
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+				  0, /*anti replay window len - use default */
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 				  ntohl (mp->tx_table_id),
 				  mp->salt, &remote_ip, &local_ip,
 				  TUNNEL_ENCAP_DECAP_FLAG_NONE,
@@ -782,6 +797,9 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 				  mp->integ_alg,
 				  &integ_key,
 				  flags,
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+				  0, /*anti replay window len - use default */
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 				  ntohl (mp->tx_table_id),
 				  mp->salt, &local_ip, &remote_ip,
 				  TUNNEL_ENCAP_DECAP_FLAG_NONE,
@@ -973,7 +991,11 @@ send_ipsec_sa_details (ipsec_sa_t * sa, void *arg)
       mp->last_seq_inbound |= (u64) (clib_host_to_net_u32 (sa->last_seq_hi));
     }
   if (ipsec_sa_is_set_USE_ANTI_REPLAY (sa))
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+    ipsec_replay_window_encode (sa->replay_window_bmp, &mp->replay_window);
+#else /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
     mp->replay_window = clib_host_to_net_u64 (sa->replay_window);
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 
   mp->stat_index = clib_host_to_net_u32 (sa->stat_index);
 
@@ -1068,7 +1090,11 @@ send_ipsec_sa_v2_details (ipsec_sa_t * sa, void *arg)
       mp->last_seq_inbound |= (u64) (clib_host_to_net_u32 (sa->last_seq_hi));
     }
   if (ipsec_sa_is_set_USE_ANTI_REPLAY (sa))
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+    ipsec_replay_window_encode (sa->replay_window_bmp, &mp->replay_window);
+#else /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
     mp->replay_window = clib_host_to_net_u64 (sa->replay_window);
+#endif /*FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
 
   mp->stat_index = clib_host_to_net_u32 (sa->stat_index);
 

@@ -12,6 +12,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Initialize "timeout_thread_cancelled" and some other global variables on every client connect()
+ *     to avoid stale values on client reconnect. The stale "true", that is assigned on previous disconnect
+ *      might cause vac_read() timeout handler not to break waiting in vac_read() if vpp crashed the second time.
+ */
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,6 +104,11 @@ init (void)
   pthread_cond_init(&pm->timeout_cv, NULL);
   pthread_cond_init(&pm->timeout_cancel_cv, NULL);
   pthread_cond_init(&pm->terminate_cv, NULL);
+#ifdef FLEXIWAN_FIX
+  timeout_thread_cancelled = false;
+  timeout_in_progress      = false;
+  timeout_cancelled        = true;
+#endif
 }
 
 static void

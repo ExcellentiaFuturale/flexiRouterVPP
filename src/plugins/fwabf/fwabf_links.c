@@ -409,7 +409,7 @@ u32 fwabf_links_del_interface (const u32 sw_if_index)
 }
 
 #define FWABF_GET_INDEX_BY_FLOWHASH(_flowhash, _vec_len_pow2_mask, _vec_len_minus_1, _res) \
-      (((_res = (_flowhash & _vec_len_pow2_mask)) <= _vec_len_minus_1) ? _res : (_res & _vec_len_minus_1))
+      (((_res = (_flowhash & (_vec_len_pow2_mask))) <= (_vec_len_minus_1)) ? _res : (_res & (_vec_len_minus_1)))
 
 dpo_id_t fwabf_links_get_quality_dpo (
                         fwabf_label_t*                  policy_labels,
@@ -596,7 +596,6 @@ dpo_id_t fwabf_links_get_intersected_dpo (
   const dpo_id_t* lookup_dpo;
   dpo_id_t        invalid_dpo = DPO_INVALID;
   u32             i;
-  fwabf_label_data_t* label;
   fwabf_link_t*       link;
   u32                 sw_if_index;
 
@@ -605,7 +604,6 @@ dpo_id_t fwabf_links_get_intersected_dpo (
    * monitored by user externally to vpp), return immediately.
    */
   ASSERT(fwlabel <= FWABF_MAX_LABEL);
-  label = &fwabf_labels[fwlabel];
 
   /*
    * lb - is DPO of Load Balance type. It is the object returned by the FIB

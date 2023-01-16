@@ -390,6 +390,7 @@ dpdk_lib_init (dpdk_main_t * dm)
       dpdk_portid_t next_port_id;
       dpdk_device_config_t *devconf = 0;
       vlib_pci_addr_t pci_addr;
+      pci_addr.as_u32 = ~0;
 
       if (!rte_eth_dev_is_valid_port(i))
 	continue;
@@ -405,6 +406,15 @@ dpdk_lib_init (dpdk_main_t * dm)
 
 #ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
       pci_dev = dpdk_get_pci_device (&dev_info);
+
+      if (pci_dev)
+	{
+	  pci_addr.domain = pci_dev->addr.domain;
+	  pci_addr.bus = pci_dev->addr.bus;
+	  pci_addr.slot = pci_dev->addr.devid;
+	  pci_addr.function = pci_dev->addr.function;
+	}
+
       devconf = dpdk_get_device_config (pci_dev, dev_info.if_index);
       if (!devconf)
 	{
