@@ -712,6 +712,10 @@ dpdk_hqos_get_queue_stats (dpdk_device_t * xd,
 			   u32 pipe_id, u32 tc, u32 tc_q,
 			   struct rte_sched_queue_stats * stats);
 
+void
+dpdk_hqos_setup_pktfield (dpdk_device_t *xd, u32 id, u32 offset, u64 mask,
+                          u32 thread_index);
+
 clib_error_t *dpdk_port_setup_hqos (dpdk_device_t * xd,
                                    dpdk_device_config_hqos_t * hqos);
 void dpdk_hqos_metadata_set (dpdk_device_hqos_per_worker_thread_t * hqos,

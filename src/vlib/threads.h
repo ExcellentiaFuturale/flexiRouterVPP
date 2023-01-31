@@ -12,6 +12,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ * List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *  - reusable_function_to_get_workers_count_and_index
+ */
+
 #ifndef included_vlib_threads_h
 #define included_vlib_threads_h
 
@@ -396,6 +402,27 @@ vlib_get_current_worker_index ()
 {
   return vlib_get_thread_index () - 1;
 }
+
+#ifdef FLEXIWAN_FIX /* reusable_func_to_get_workers_count_and_index */
+static inline void
+vlib_get_core_worker_count_and_first_index (u32 *worker_thread_count,
+					    u32 *worker_thread_first)
+{
+  uword *p = hash_get_mem (vlib_thread_main.thread_registrations_by_name,
+			   "workers");
+  vlib_thread_registration_t *tr = p ? (vlib_thread_registration_t *) p[0] : 0;
+  if (tr)
+    {
+      *worker_thread_first = tr->first_index;
+      *worker_thread_count = tr->count;
+    }
+  else
+    {
+      *worker_thread_count = 0;
+      *worker_thread_first = 0;
+    }
+}
+#endif /* reusable_func_to_get_workers_count_and_index */
 
 static inline void
 vlib_worker_thread_barrier_check (void)
