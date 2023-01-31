@@ -1102,21 +1102,17 @@ set_dpdk_if_hqos_tctbl (vlib_main_t * vm, unformat_input_t * input,
     }
 
   // Detect the set of worker threads
-  vlib_thread_main_t *tm = vlib_get_thread_main ();
-  uword *p = hash_get_mem (tm->thread_registrations_by_name, "workers");
-  if (p == 0)
-    {
-      error = clib_error_return (0, "no worker registrations?");
-      goto done;
-    }
-  vlib_thread_registration_t *tr = (vlib_thread_registration_t *) p[0];
-  int worker_thread_first = tr->first_index;
-  int worker_thread_count = tr->count;
+  u32 worker_thread_count, worker_thread_first;
+  vlib_get_core_worker_count_and_first_index (&worker_thread_count,
+                                              &worker_thread_first);
 
   val = (tc << 2) + queue;
-  for (i = 0; i < worker_thread_count; i++)
+  // set value to all worker and main-thread-0 context
+  xd->hqos_wt[0].hqos_tc_table[entry] = val;
+  for (i = worker_thread_first;
+       i < (worker_thread_first + worker_thread_count); i++)
     {
-      xd->hqos_wt[worker_thread_first + i].hqos_tc_table[entry] = val;
+      xd->hqos_wt[i].hqos_tc_table[entry] = val;
     }
 
 done:
@@ -1258,41 +1254,17 @@ set_dpdk_if_hqos_pktfield (vlib_main_t * vm, unformat_input_t * input,
     }
 
   // Detect the set of worker threads
-  vlib_thread_main_t *tm = vlib_get_thread_main ();
-  uword *p = hash_get_mem (tm->thread_registrations_by_name, "workers");
-  if (p == 0)
+  u32 worker_thread_count, worker_thread_first;
+  vlib_get_core_worker_count_and_first_index (&worker_thread_count,
+                                              &worker_thread_first);
+
+  // set value to all worker and main-thread-0 context
+  dpdk_hqos_setup_pktfield (xd, id, offset, mask, 0);
+  for (i = worker_thread_first;
+       i < (worker_thread_first + worker_thread_count); i++)
     {
-      error = clib_error_return (0, "no worker registrations?");
-      goto done;
+      dpdk_hqos_setup_pktfield (xd, id, offset, mask, i);
     }
-  vlib_thread_registration_t *tr = (vlib_thread_registration_t *) p[0];
-  int worker_thread_first = tr->first_index;
-  int worker_thread_count = tr->count;
-
-  // Propagate packet field configuration to all workers
-  for (i = 0; i < worker_thread_count; i++)
-    switch (id)
-      {
-      case 0:
-	xd->hqos_wt[worker_thread_first + i].hqos_field0_slabpos = offset;
-	xd->hqos_wt[worker_thread_first + i].hqos_field0_slabmask = mask;
-	xd->hqos_wt[worker_thread_first + i].hqos_field0_slabshr =
-	  count_trailing_zeros (mask);
-	break;
-      case 1:
-	xd->hqos_wt[worker_thread_first + i].hqos_field1_slabpos = offset;
-	xd->hqos_wt[worker_thread_first + i].hqos_field1_slabmask = mask;
-	xd->hqos_wt[worker_thread_first + i].hqos_field1_slabshr =
-	  count_trailing_zeros (mask);
-	break;
-      case 2:
-      default:
-	xd->hqos_wt[worker_thread_first + i].hqos_field2_slabpos = offset;
-	xd->hqos_wt[worker_thread_first + i].hqos_field2_slabmask = mask;
-	xd->hqos_wt[worker_thread_first + i].hqos_field2_slabshr =
-	  count_trailing_zeros (mask);
-      }
-
 done:
   unformat_free (line_input);
 
@@ -1358,7 +1330,6 @@ show_dpdk_if_hqos (vlib_main_t * vm, unformat_input_t * input,
   clib_error_t *error = NULL;
 
   u32 subport_id, i;
-  uword *p = 0;
   u32 hw_if_index = ~0;
   u32 *hw_if_indexes = NULL;
   dpdk_device_and_queue_t *dq;
@@ -1405,16 +1376,6 @@ show_dpdk_if_hqos (vlib_main_t * vm, unformat_input_t * input,
 	}
     }
 
-  // Detect the set of worker threads
-  vlib_thread_main_t *tm = vlib_get_thread_main ();
-  p = hash_get_mem (tm->thread_registrations_by_name, "workers");
-  if (p == 0)
-    {
-      error = clib_error_return (0, "no worker registrations?");
-      goto done;
-    }
-  vlib_thread_registration_t *tr = (vlib_thread_registration_t *) p[0];
-
   u32 *if_index;
   vec_foreach (if_index, hw_if_indexes)
     {
@@ -1435,7 +1396,7 @@ show_dpdk_if_hqos (vlib_main_t * vm, unformat_input_t * input,
 		       hi->name, *if_index);
       dpdk_device_config_hqos_t *cfg = &devconf->hqos;
       dpdk_device_hqos_per_hqos_thread_t *ht = xd->hqos_ht;
-      dpdk_device_hqos_per_worker_thread_t *wk = &xd->hqos_wt[tr->first_index];
+      dpdk_device_hqos_per_worker_thread_t *wk = &xd->hqos_wt[0];
       u32 *tctbl = wk->hqos_tc_table;
 
       struct rte_sched_port_params * port_params = &cfg->port_params;
