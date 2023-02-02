@@ -810,6 +810,46 @@ dpdk_hqos_get_queue_stats (dpdk_device_t * xd,
 }
 
 
+void
+dpdk_hqos_setup_pktfield (dpdk_device_t *xd, u32 id, u32 offset, u64 mask,
+			  u32 thread_index)
+{
+  switch (id)
+    {
+    case 0:
+      xd->hqos_wt[thread_index].hqos_field0_slabpos = offset;
+      xd->hqos_wt[thread_index].hqos_field0_slabmask = mask;
+      xd->hqos_wt[thread_index].hqos_field0_slabshr =
+	count_trailing_zeros (mask);
+      break;
+    case 1:
+      xd->hqos_wt[thread_index].hqos_field1_slabpos = offset;
+      xd->hqos_wt[thread_index].hqos_field1_slabmask = mask;
+      xd->hqos_wt[thread_index].hqos_field1_slabshr =
+	count_trailing_zeros (mask);
+      break;
+    case 2:
+      xd->hqos_wt[thread_index].hqos_field2_slabpos = offset;
+      xd->hqos_wt[thread_index].hqos_field2_slabmask = mask;
+      xd->hqos_wt[thread_index].hqos_field2_slabshr =
+	count_trailing_zeros (mask);
+    }
+}
+
+
+static void
+dpdk_hqos_setup_pktfield_default (dpdk_device_t *xd,
+				  dpdk_device_config_hqos_t * hqos,
+				  u32 thread_index)
+{
+  dpdk_hqos_setup_pktfield (xd, 0, hqos->pktfield0_slabpos,
+			    hqos->pktfield0_slabmask, thread_index);
+  dpdk_hqos_setup_pktfield (xd, 1, hqos->pktfield1_slabpos,
+			    hqos->pktfield1_slabmask, thread_index);
+  dpdk_hqos_setup_pktfield (xd, 2, hqos->pktfield2_slabpos,
+			    hqos->pktfield2_slabmask, thread_index);
+}
+
 /***
  *
  * HQoS init
@@ -826,18 +866,9 @@ dpdk_port_setup_hqos (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos)
   clib_error_t * error = NULL;
 
   /* Detect the set of worker threads */
-  int worker_thread_first = 0;
-  int worker_thread_count = 0;
-
-  uword *p = hash_get_mem (tm->thread_registrations_by_name, "workers");
-  vlib_thread_registration_t *tr =
-    p ? (vlib_thread_registration_t *) p[0] : 0;
-
-  if (tr && tr->count > 0)
-    {
-      worker_thread_first = tr->first_index;
-      worker_thread_count = tr->count;
-    }
+  u32 worker_thread_count, worker_thread_first;
+  vlib_get_core_worker_count_and_first_index (&worker_thread_count,
+                                              &worker_thread_first);
 
   /* Allocate the per-thread device data array */
   vec_validate_aligned (xd->hqos_wt, tm->n_vlib_mains - 1,
@@ -908,30 +939,19 @@ dpdk_port_setup_hqos (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos)
   xd->hqos_ht->swq_pos = 0;
   xd->hqos_ht->flush_count = 0;
 
-  /* Set up per-thread device data for each worker thread */
-  for (i = 0; i < worker_thread_count + 1; i++)
+  /* Set up per-thread device data for each worker thread and main-thread-0 */
+  dpdk_hqos_setup_pktfield_default (xd, hqos, 0);
+  memcpy (xd->hqos_wt[0].hqos_tc_table, hqos->tc_table,
+          sizeof (hqos->tc_table));
+  u32 count = 0;
+  xd->hqos_wt[0].swq = xd->hqos_ht->swq[count++];
+  for (i = worker_thread_first;
+       i < (worker_thread_first + worker_thread_count); i++)
     {
-      u32 tid;
-      if (i)
-	tid = worker_thread_first + (i - 1);
-      else
-	tid = i;
-
-      xd->hqos_wt[tid].swq = xd->hqos_ht->swq[i];
-      xd->hqos_wt[tid].hqos_field0_slabpos = hqos->pktfield0_slabpos;
-      xd->hqos_wt[tid].hqos_field0_slabmask = hqos->pktfield0_slabmask;
-      xd->hqos_wt[tid].hqos_field0_slabshr =
-	count_trailing_zeros (hqos->pktfield0_slabmask);
-      xd->hqos_wt[tid].hqos_field1_slabpos = hqos->pktfield1_slabpos;
-      xd->hqos_wt[tid].hqos_field1_slabmask = hqos->pktfield1_slabmask;
-      xd->hqos_wt[tid].hqos_field1_slabshr =
-	count_trailing_zeros (hqos->pktfield1_slabmask);
-      xd->hqos_wt[tid].hqos_field2_slabpos = hqos->pktfield2_slabpos;
-      xd->hqos_wt[tid].hqos_field2_slabmask = hqos->pktfield2_slabmask;
-      xd->hqos_wt[tid].hqos_field2_slabshr =
-	count_trailing_zeros (hqos->pktfield2_slabmask);
-      memcpy (xd->hqos_wt[tid].hqos_tc_table, hqos->tc_table,
-	      sizeof (hqos->tc_table));
+      xd->hqos_wt[i].swq = xd->hqos_ht->swq[count++];
+      dpdk_hqos_setup_pktfield_default (xd, hqos, i);
+      memcpy (xd->hqos_wt[i].hqos_tc_table, hqos->tc_table,
+              sizeof (hqos->tc_table));
     }
 
   return error;
