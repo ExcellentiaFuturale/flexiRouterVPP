@@ -121,7 +121,7 @@ snat_hairpinning (vlib_main_t * vm, vlib_node_runtime_t * node,
   /* or active session */
   else
     {
-      if (sm->num_workers > 1)
+      if (sm->num_workers > 0)
 	ti =
 	  (clib_net_to_host_u16 (udp0->dst_port) -
 	   1024) / sm->port_per_thread;
@@ -330,7 +330,7 @@ snat_icmp_hairpinning (snat_main_t * sm,
 	      u16 icmp_id0 = echo0->identifier;
 	      init_nat_k (&kv0, ip0->dst_address, icmp_id0,
 			  sm->outside_fib_index, NAT_PROTOCOL_ICMP);
-	      if (sm->num_workers > 1)
+	      if (sm->num_workers > 0)
 		ti =
 		  (clib_net_to_host_u16 (icmp_id0) -
 		   1024) / sm->port_per_thread;
@@ -419,7 +419,7 @@ nat44_ed_hairpinning_unknown_proto (snat_main_t * sm,
   ip_csum_t sum;
   snat_session_t *s;
 
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     ti = sm->worker_out2in_cb (b, ip, sm->outside_fib_index, 0);
   else
     ti = sm->num_workers;
@@ -754,7 +754,7 @@ snat_hairpin_src_fn_inline (vlib_main_t * vm,
                 if (PREDICT_FALSE ((vnet_buffer (b0)->snat.flags) &
                                     SNAT_FLAG_HAIRPINNING))
                   {
-                    if (PREDICT_TRUE (sm->num_workers > 1))
+                    if (PREDICT_TRUE (sm->num_workers > 0))
                       next0 = SNAT_HAIRPIN_SRC_NEXT_SNAT_IN2OUT_WH;
                     else
                       next0 = SNAT_HAIRPIN_SRC_NEXT_SNAT_IN2OUT;

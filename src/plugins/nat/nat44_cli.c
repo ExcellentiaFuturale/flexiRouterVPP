@@ -199,7 +199,7 @@ nat_show_workers_commnad_fn (vlib_main_t * vm, unformat_input_t * input,
   snat_main_t *sm = &snat_main;
   u32 *worker;
 
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     {
       vlib_cli_output (vm, "%d workers", vec_len (sm->workers));
       /* *INDENT-OFF* */
@@ -804,7 +804,7 @@ nat44_show_summary_command_fn (vlib_main_t * vm, unformat_input_t * input,
     vlib_cli_output (vm, "max translations per thread: %u fib %u",
 		     sm->max_translations_per_fib[fib], fib);
 
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     {
       /* *INDENT-OFF* */
       vec_foreach (tsm, sm->per_thread_data)

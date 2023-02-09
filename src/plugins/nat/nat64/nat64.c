@@ -280,7 +280,7 @@ nat64_init (vlib_main_t * vm)
 	}
     }
 
-  if (nm->num_workers > 1)
+  if (nm->num_workers > 0)
     {
       int i;
       uword *bitmap = 0;
@@ -610,7 +610,7 @@ nat64_interface_add_del (u32 sw_if_index, u8 is_inside, u8 is_add)
       /* *INDENT-ON* */
     }
 
-  if (nm->num_workers > 1)
+  if (nm->num_workers > 0)
     {
       feature_name =
 	is_inside ? "nat64-in2out-handoff" : "nat64-out2in-handoff";
@@ -804,7 +804,7 @@ nat64_alloc_out_addr_and_port (u32 fib_index, nat_protocol_t proto,
   u32 worker_index = 0;
   int rv;
 
-  if (nm->num_workers > 1)
+  if (nm->num_workers > 0)
     worker_index = thread_index - nm->first_worker_index;
 
   rv = nat64_alloc_addr_and_port_default (nm->addr_pool, fib_index,
@@ -936,7 +936,7 @@ nat64_add_del_static_bib_entry (ip6_address_t * in_addr,
   vlib_main_t *worker_vm;
   u32 *to_be_free = 0, *index;
 
-  if (nm->num_workers > 1)
+  if (nm->num_workers > 0)
     {
       thread_index = nat64_get_worker_in2out (in_addr);
       db = &nm->db[thread_index];
@@ -956,7 +956,7 @@ nat64_add_del_static_bib_entry (ip6_address_t * in_addr,
 	return VNET_API_ERROR_VALUE_EXIST;
 
       /* outside port must be assigned to same thread as internall address */
-      if ((out_port > 1024) && (nm->num_workers > 1))
+      if ((out_port > 1024) && (nm->num_workers > 0))
 	{
 	  if (thread_index != ((out_port - 1024) / nm->port_per_thread))
 	    return VNET_API_ERROR_INVALID_VALUE_2;
