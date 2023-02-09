@@ -655,7 +655,7 @@ icmp_match_out2in_ed (snat_main_t * sm, vlib_node_runtime_t * node,
 		}
 	      else
 		{
-		  if (sm->num_workers > 1)
+		  if (sm->num_workers > 0)
 		    {
 		      if (create_bypass_for_fwd_worker (sm, b, ip,
 							rx_fib_index,
@@ -1330,7 +1330,7 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
 		    }
 		  else
 		    {
-		      if ((sm->num_workers > 1)
+		      if ((sm->num_workers > 0)
 			  && create_bypass_for_fwd_worker (sm, b0, ip0,
 							   rx_fib_index0,
 							   thread_index))
@@ -1597,7 +1597,7 @@ VLIB_NODE_FN (nat44_ed_out2in_node) (vlib_main_t * vm,
 				     vlib_node_runtime_t * node,
 				     vlib_frame_t * frame)
 {
-  if (snat_main.num_workers > 1)
+  if (snat_main.num_workers > 0)
     {
       return nat44_ed_out2in_fast_path_node_fn_inline (vm, node, frame, 1);
     }

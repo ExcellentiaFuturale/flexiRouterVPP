@@ -367,7 +367,7 @@ nat_ha_set_listener (ip4_address_t * addr, u16 port, u32 path_mtu)
   if (port)
     {
       /* if multiple worker threads first go to handoff node */
-      if (ha->num_workers > 1)
+      if (ha->num_workers > 0)
 	{
 	  if (ha->fq_index == ~0)
 	    ha->fq_index = vlib_frame_queue_main_init (nat_ha_node.index, 0);
