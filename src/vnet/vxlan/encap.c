@@ -496,7 +496,6 @@ vxlan_encap_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FIX
           /* Fix UDP length  and set source port */
           udp0->length = payload_l0;
-          /* udp0->src_port = clib_host_to_net_u16 (4789); */
 		  udp0->src_port = clib_host_to_net_u16 (t0->src_port);
 #else /* FLEXIWAN_FIX */
 	  /* Fix UDP length  and set source port */

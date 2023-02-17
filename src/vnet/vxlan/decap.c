@@ -700,7 +700,7 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
   if (is_ip4)
     vtep4_key_init (&last_vtep4);
   else
-	vtep6_key_init (&last_vtep6);
+    vtep6_key_init (&last_vtep6);
 
   while (n_left_from > 0)
     {
