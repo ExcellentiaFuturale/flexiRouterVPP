@@ -18,9 +18,7 @@
  *  Copyright (C) 2020 flexiWAN Ltd.
  *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
  *   - Use of a specific source port for VxLan src port - enables full NAT traversal
- *   - The source port is defined at /etc/flexiwan/agent/fwagent_conf.yaml
- *      vxlan:
- *         port: 4789          # VXLAN UDP port
+ *   - Add source port for vxlan tunnel. Port is provisioned by fleximanage when creating the tunnel.
  *   - Add destination port for vxlan tunnel, if remote device is behind NAT. Port is
  *     provisioned by fleximanage when creating the tunnel.
  *
@@ -292,10 +290,8 @@ vxlan_encap_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FIX
           /* Fix UDP length  and set source port */
           udp0->length = payload_l0;
-		  /* udp0->src_port = clib_host_to_net_u16 (4789); */
 		  udp0->src_port = clib_host_to_net_u16 (t0->src_port);
           udp1->length = payload_l1;
-		  /* udp1->src_port = clib_host_to_net_u16 (4789); */
 		  udp1->src_port = clib_host_to_net_u16 (t1->src_port);
 #else /* FLEXIWAN_FIX */
 	  /* Fix UDP length  and set source port */

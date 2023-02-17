@@ -35,6 +35,7 @@
  *     These tunnels do not need NAT, so there is no need to create NAT session
  *     for them. That improves performance on multi-core machines,
  *     as NAT session are bound to the specific worker thread / core.
+ *   - custom source and destination vxLan port instead of hardcoded 4789.
  */
 
 #include <vlib/vlib.h>
@@ -96,7 +97,7 @@ vxlan4_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache4 * cache,
   u32 src = ip4_0->src_address.as_u32;
   vxlan4_tunnel_key_t key4 = {
     .key[0] = ((u64) dst << 32) | src,
-    .key[1] = ((U64) udp->dst_port << 48) | ((u64) fib_index << 32) | vxlan0->vni_reserved,
+    .key[1] = ((u64) fib_index << 32) | vxlan0->vni_reserved,
   };
 
   if (PREDICT_TRUE
@@ -677,8 +678,15 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
   clib_memset (&vtep4_u512, 0, sizeof (vtep4_u512));
 #endif
 
+#ifdef FLEXIWAN_FEATURE
   last_tunnel_cache4 last4;
   last_tunnel_cache6 last6;
+
+  if (is_ip4)
+	clib_memset (&last4, 0xff, sizeof last4);
+  else
+	clib_memset (&last6, 0xff, sizeof last6);
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -690,15 +698,9 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
     ip4_forward_next_trace (vm, node, frame, VLIB_TX);
 
   if (is_ip4)
-	{
-      vtep4_key_init (&last_vtep4);
-	  clib_memset (&last4, 0xff, sizeof last4);
-	}
+    vtep4_key_init (&last_vtep4);
   else
-	{
-	  vtep6_key_init (&last_vtep6);
-	  clib_memset (&last6, 0xff, sizeof last6);
-	}
+	vtep6_key_init (&last_vtep6);
 
   while (n_left_from > 0)
     {
@@ -710,15 +712,15 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  ip4_header_t *ip40, *ip41;
 	  ip6_header_t *ip60, *ip61;
 	  udp_header_t *udp0, *udp1;
-	  vxlan_header_t *vxlan0, *vxlan1;
 	  u32 bi0, ip_len0, udp_len0, flags0, next0;
 	  u32 bi1, ip_len1, udp_len1, flags1, next1;
 	  i32 len_diff0, len_diff1;
 	  u8 error0, good_udp0, proto0;
 	  u8 error1, good_udp1, proto1;
-	  u32 stats_if0 = ~0, stats_if1 = ~0;
 #ifdef FLEXIWAN_FEATURE
-      u16 last_src_port = 0;
+	  vxlan_header_t *vxlan0, *vxlan1;
+	  u32 stats_if0 = ~0, stats_if1 = ~0;
+	  u16 last_src_port = 0;
 #endif
 
 	  /* Prefetch next iteration. */
@@ -777,20 +779,20 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  else
 	    udp0 = ip6_next_header (ip60);
 
+#ifdef FLEXIWAN_FEATURE
 	  u32 fi0 = vlib_buffer_get_ip_fib_index (b0, is_ip4);
-	  vxlan0 = vlib_buffer_get_current (b0) + sizeof (udp_header_t) +
-		   sizeof (ip4_header_t);
+	  vxlan0 = vlib_buffer_get_current (b0) + sizeof (udp_header_t) + sizeof (ip4_header_t);
 
       vxlan_decap_info_t di0 = is_ip4 ?
-	vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &stats_if0) :
-	vxlan6_find_tunnel (vxm, &last6, fi0, ip60, udp0, vxlan0, &stats_if0);
+	    vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &stats_if0) :
+	    vxlan6_find_tunnel (vxm, &last6, fi0, ip60, udp0, vxlan0, &stats_if0);
 
 	  if (PREDICT_FALSE (di0.sw_if_index == ~0))
 	    goto exit0; /* unknown interface */
-
-	  //if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
-	  /*if (udp0->dst_port != clib_host_to_net_u16 (udp0->src_port))
-	    goto exit0;		 not VXLAN packet */
+#else
+	  if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
+	    goto exit0;		/* not VXLAN packet */
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 	  /* Validate DIP against VTEPs */
 	  if (is_ip4)
@@ -868,18 +870,20 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  else
 	    udp1 = ip6_next_header (ip61);
 
+#ifdef FLEXIWAN_FEATURE
       u32 fi1 = vlib_buffer_get_ip_fib_index (b1, is_ip4);
-	  vxlan1 = vlib_buffer_get_current (b1) + sizeof (udp_header_t) +
-		   sizeof (ip4_header_t);
+	  vxlan1 = vlib_buffer_get_current (b1) + sizeof (udp_header_t) + sizeof (ip4_header_t);
 
       vxlan_decap_info_t di1 = is_ip4 ?
-	vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi1, ip41, udp1, vxlan1, &stats_if1) :
-	vxlan6_find_tunnel (vxm, &last6, fi1, ip61, udp1, vxlan1, &stats_if1);
+		vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi1, ip41, udp1, vxlan1, &stats_if1) :
+		vxlan6_find_tunnel (vxm, &last6, fi1, ip61, udp1, vxlan1, &stats_if1);
 
 	  if (PREDICT_FALSE (di1.sw_if_index == ~0))
 	    goto exit1; /* unknown interface */
-	  /*if (udp1->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
-	    goto exit1;		not VXLAN packet */
+#else
+	  if (udp1->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
+	    goto exit1;		/* not VXLAN packet */
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 	  /* Validate DIP against VTEPs */
 	  if (is_ip4)
@@ -959,13 +963,13 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  ip4_header_t *ip40;
 	  ip6_header_t *ip60;
 	  udp_header_t *udp0;
-	  vxlan_header_t *vxlan0;
 	  u32 bi0, ip_len0, udp_len0, flags0, next0;
 	  i32 len_diff0;
 	  u8 error0, good_udp0, proto0;
-	  u32 stats_if0 = ~0;
 #ifdef FLEXIWAN_FEATURE
-      u16 last_src_port = 0;
+	  vxlan_header_t *vxlan0;
+	  u32 stats_if0 = ~0;
+	  u16 last_src_port = 0;
 #endif
 
 	  bi0 = to_next[0] = from[0];
@@ -999,22 +1003,22 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  else
 	    udp0 = ip6_next_header (ip60);
 
-	  /*if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
-	    goto exit;		 not VXLAN packet */
-
+#ifdef FLEXIWAN_FEATURE
       u32 fi0 = vlib_buffer_get_ip_fib_index (b0, is_ip4);
-	  vxlan0 = vlib_buffer_get_current (b0) + sizeof (udp_header_t) +
-		   sizeof (ip4_header_t);
+	  vxlan0 = vlib_buffer_get_current (b0) + sizeof (udp_header_t) + sizeof (ip4_header_t);
 
-	  /* Validate DIP against VTEPs */
       vxlan_decap_info_t di0 = is_ip4 ?
-	vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &stats_if0) :
-	vxlan6_find_tunnel (vxm, &last6, fi0, ip60, udp0, vxlan0, &stats_if0);
+		vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &stats_if0) :
+		vxlan6_find_tunnel (vxm, &last6, fi0, ip60, udp0, vxlan0, &stats_if0);
 
 	  if (PREDICT_FALSE (di0.sw_if_index == ~0))
 	    goto exit0; /* unknown interface */
+#else
+	  if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
+	    goto exit;		/* not VXLAN packet */
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
-
+	  /* Validate DIP against VTEPs */
 	  if (is_ip4)
 	    {
 #ifdef CLIB_HAVE_VEC512

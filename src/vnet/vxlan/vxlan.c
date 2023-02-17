@@ -333,10 +333,11 @@ vxlan_rewrite (vxlan_tunnel_t * t, bool is_ip6)
     }
 
   /* UDP header, randomize src port on something, maybe? */
-  udp->src_port = clib_host_to_net_u16 (t->src_port);
 #ifdef FLEXIWAN_FEATURE
+  udp->src_port = clib_host_to_net_u16 (t->src_port);
   udp->dst_port = clib_host_to_net_u16 (t->dest_port);
 #else
+  udp->src_port = clib_host_to_net_u16 (4789);
   udp->dst_port = clib_host_to_net_u16 (UDP_DST_PORT_vxlan);
 #endif
 
@@ -412,13 +413,14 @@ int vnet_vxlan_add_del_tunnel
   vxlan6_tunnel_key_t key6;
   u32 is_ip6 = a->is_ip6;
 
+#ifdef FLEXIWAN_FEATURE
   /* Set udp-ports */
-  if (a->dest_port ==0)
+  if (a->dest_port == 0)
     a->dest_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
   if (a->src_port == 0)
     a->src_port = is_ip6 ? UDP_DST_PORT_vxlan6 : UDP_DST_PORT_vxlan;
-    //a->src_port = a->dest_port;
-  
+#endif
+
   int not_found;
   if (!is_ip6)
     {
