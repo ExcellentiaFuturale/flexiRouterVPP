@@ -764,7 +764,7 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	    udp0 = ip6_next_header (ip60);
 
 #ifdef FLEXIWAN_FEATURE
-	  if (udp0->dst_port != clib_host_to_net_u16 (vxm->default_port))
+	  if (udp0->dst_port != clib_host_to_net_u16 (vxm->vxlan_port))
 	    goto exit0;		/* not VXLAN packet */
 #else
 	  if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
@@ -848,7 +848,7 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	    udp1 = ip6_next_header (ip61);
 
 #ifdef FLEXIWAN_FEATURE
-	  if (udp1->dst_port != clib_host_to_net_u16 (vxm->default_port))
+	  if (udp1->dst_port != clib_host_to_net_u16 (vxm->vxlan_port))
 	    goto exit0;		/* not VXLAN packet */
 #else
 	  if (udp1->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
@@ -969,7 +969,7 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	    udp0 = ip6_next_header (ip60);
 
 #ifdef FLEXIWAN_FEATURE
-	  if (udp0->dst_port != clib_host_to_net_u16 (vxm->default_port))
+	  if (udp0->dst_port != clib_host_to_net_u16 (vxm->vxlan_port))
 	    goto exit0;		/* not VXLAN packet */
 #else
 	  if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))

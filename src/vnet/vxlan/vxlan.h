@@ -237,7 +237,7 @@ typedef struct
 
 #ifdef FLEXIWAN_FEATURE
   /* Custom vxlan port default is 4789 */
-  u32 default_port;
+  u32 vxlan_port;
 #endif
 
 } vxlan_main_t;
@@ -404,7 +404,7 @@ vnet_vxlan4_set_escape_feature_group_x1(vnet_feature_group_t g, vlib_buffer_t *b
   last_src_port = 0;
 
 #ifdef FLEXIWAN_FEATURE
-  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.default_port))
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
 #else
   if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(4789))
 #endif
@@ -440,7 +440,7 @@ vnet_vxlan4_set_escape_feature_group_x2(vnet_feature_group_t g,
   last_src_port = 0;
 
 #ifdef FLEXIWAN_FEATURE
-  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.default_port))
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
 #else
   if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(4789))
 #endif
@@ -450,7 +450,7 @@ vnet_vxlan4_set_escape_feature_group_x2(vnet_feature_group_t g,
       vnet_buffer(b0)->escape_feature_groups |= g;
   }
 #ifdef FLEXIWAN_FEATURE
-  if (ip41->protocol == IP_PROTOCOL_UDP  &&  udp1->dst_port == clib_host_to_net_u16(vxlan_main.default_port))
+  if (ip41->protocol == IP_PROTOCOL_UDP  &&  udp1->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
 #else
   if (ip41->protocol == IP_PROTOCOL_UDP  &&  udp1->dst_port == clib_host_to_net_u16(4789))
 #endif
@@ -497,7 +497,7 @@ always_inline void vnet_vxlan4_set_escape_feature_group_x4(vnet_feature_group_t 
   last_src_port = 0;
 
 #ifdef FLEXIWAN_FEATURE
-  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.default_port))
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
 #else
   if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(4789))
 #endif
@@ -507,7 +507,7 @@ always_inline void vnet_vxlan4_set_escape_feature_group_x4(vnet_feature_group_t 
       vnet_buffer(b0)->escape_feature_groups |= g;
   }
 #ifdef FLEXIWAN_FEATURE
-  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.default_port))
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
 #else
   if (ip41->protocol == IP_PROTOCOL_UDP  &&  udp1->dst_port == clib_host_to_net_u16(4789))
 #endif
@@ -517,7 +517,7 @@ always_inline void vnet_vxlan4_set_escape_feature_group_x4(vnet_feature_group_t 
       vnet_buffer(b1)->escape_feature_groups |= g;
   }
 #ifdef FLEXIWAN_FEATURE
-  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.default_port))
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
 #else
   if (ip42->protocol == IP_PROTOCOL_UDP  &&  udp2->dst_port == clib_host_to_net_u16(4789))
 #endif
@@ -527,7 +527,7 @@ always_inline void vnet_vxlan4_set_escape_feature_group_x4(vnet_feature_group_t 
       vnet_buffer(b2)->escape_feature_groups |= g;
   }
 #ifdef FLEXIWAN_FEATURE
-  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.default_port))
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
 #else
   if (ip43->protocol == IP_PROTOCOL_UDP  &&  udp3->dst_port == clib_host_to_net_u16(4789))
 #endif
