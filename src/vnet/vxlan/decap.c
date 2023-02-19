@@ -154,11 +154,10 @@ vxlan6_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache6 * cache,
     return decap_bad_flags;
 
   /* Make sure VXLAN tunnel exist according to packet SIP, UDP port, VRF and VNI */
-  udp_header_t *udp = ip6_next_header (ip6_0);
   vxlan6_tunnel_key_t key6 = {
     .key[0] = ip6_0->src_address.as_u64[0],
     .key[1] = ip6_0->src_address.as_u64[1],
-    .key[2] = ((u64) udp->dst_port << 48) | (((u64) fib_index) << 32) | vxlan0->vni_reserved,
+    .key[2] = ((u64) udp0->dst_port << 48) | (((u64) fib_index) << 32) | vxlan0->vni_reserved,
   };
 
   if (PREDICT_FALSE
@@ -678,16 +677,6 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
   clib_memset (&vtep4_u512, 0, sizeof (vtep4_u512));
 #endif
 
-#ifdef FLEXIWAN_FEATURE
-  last_tunnel_cache4 last4;
-  last_tunnel_cache6 last6;
-
-  if (is_ip4)
-	clib_memset (&last4, 0xff, sizeof last4);
-  else
-	clib_memset (&last6, 0xff, sizeof last6);
-#endif /*#ifdef FLEXIWAN_FEATURE*/
-
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
   next_index = node->cached_next_index;
@@ -717,11 +706,6 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  i32 len_diff0, len_diff1;
 	  u8 error0, good_udp0, proto0;
 	  u8 error1, good_udp1, proto1;
-#ifdef FLEXIWAN_FEATURE
-	  vxlan_header_t *vxlan0, *vxlan1;
-	  u32 stats_if0 = ~0, stats_if1 = ~0;
-	  u16 last_src_port = 0;
-#endif
 
 	  /* Prefetch next iteration. */
 	  {
@@ -780,15 +764,8 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	    udp0 = ip6_next_header (ip60);
 
 #ifdef FLEXIWAN_FEATURE
-	  u32 fi0 = vlib_buffer_get_ip_fib_index (b0, is_ip4);
-	  vxlan0 = vlib_buffer_get_current (b0) + sizeof (udp_header_t) + sizeof (ip4_header_t);
-
-      vxlan_decap_info_t di0 = is_ip4 ?
-	    vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &stats_if0) :
-	    vxlan6_find_tunnel (vxm, &last6, fi0, ip60, udp0, vxlan0, &stats_if0);
-
-	  if (PREDICT_FALSE (di0.sw_if_index == ~0))
-	    goto exit0; /* unknown interface */
+	  if (udp0->dst_port != clib_host_to_net_u16 (vxm->default_port))
+	    goto exit0;		/* not VXLAN packet */
 #else
 	  if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
 	    goto exit0;		/* not VXLAN packet */
@@ -871,15 +848,8 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	    udp1 = ip6_next_header (ip61);
 
 #ifdef FLEXIWAN_FEATURE
-      u32 fi1 = vlib_buffer_get_ip_fib_index (b1, is_ip4);
-	  vxlan1 = vlib_buffer_get_current (b1) + sizeof (udp_header_t) + sizeof (ip4_header_t);
-
-      vxlan_decap_info_t di1 = is_ip4 ?
-		vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi1, ip41, udp1, vxlan1, &stats_if1) :
-		vxlan6_find_tunnel (vxm, &last6, fi1, ip61, udp1, vxlan1, &stats_if1);
-
-	  if (PREDICT_FALSE (di1.sw_if_index == ~0))
-	    goto exit1; /* unknown interface */
+	  if (udp1->dst_port != clib_host_to_net_u16 (vxm->default_port))
+	    goto exit0;		/* not VXLAN packet */
 #else
 	  if (udp1->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
 	    goto exit1;		/* not VXLAN packet */
@@ -966,11 +936,6 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  u32 bi0, ip_len0, udp_len0, flags0, next0;
 	  i32 len_diff0;
 	  u8 error0, good_udp0, proto0;
-#ifdef FLEXIWAN_FEATURE
-	  vxlan_header_t *vxlan0;
-	  u32 stats_if0 = ~0;
-	  u16 last_src_port = 0;
-#endif
 
 	  bi0 = to_next[0] = from[0];
 	  from += 1;
@@ -1004,15 +969,8 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	    udp0 = ip6_next_header (ip60);
 
 #ifdef FLEXIWAN_FEATURE
-      u32 fi0 = vlib_buffer_get_ip_fib_index (b0, is_ip4);
-	  vxlan0 = vlib_buffer_get_current (b0) + sizeof (udp_header_t) + sizeof (ip4_header_t);
-
-      vxlan_decap_info_t di0 = is_ip4 ?
-		vxlan4_find_tunnel (vxm, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &stats_if0) :
-		vxlan6_find_tunnel (vxm, &last6, fi0, ip60, udp0, vxlan0, &stats_if0);
-
-	  if (PREDICT_FALSE (di0.sw_if_index == ~0))
-	    goto exit0; /* unknown interface */
+	  if (udp0->dst_port != clib_host_to_net_u16 (vxm->default_port))
+	    goto exit0;		/* not VXLAN packet */
 #else
 	  if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
 	    goto exit;		/* not VXLAN packet */
