@@ -17,9 +17,8 @@
 /*
  *  Copyright (C) 2020 flexiWAN Ltd.
  *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
- *   - Use of a specific source port for VxLan src port - enables full NAT traversal
- *   - Add source port for vxlan tunnel. Port is provisioned by fleximanage when creating the tunnel.
- *   - Add destination port for vxlan tunnel, if remote device is behind NAT. Port is
+ *   - Add ability to set custom vxLan port. Port is provisioned by fleximanage.
+ *   - Add destination port for vxLan tunnel, to enable full NAT traversal. Port is
  *     provisioned by fleximanage when creating the tunnel.
  *
  *  - acl_based_classification: Feature to provide traffic classification using
@@ -290,9 +289,9 @@ vxlan_encap_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FIX
           /* Fix UDP length  and set source port */
           udp0->length = payload_l0;
-		  udp0->src_port = clib_host_to_net_u16 (t0->src_port);
+		  udp0->src_port = clib_host_to_net_u16 (vxm->vxlan_port);
           udp1->length = payload_l1;
-		  udp1->src_port = clib_host_to_net_u16 (t1->src_port);
+		  udp1->src_port = clib_host_to_net_u16 (vxm->vxlan_port);
 #else /* FLEXIWAN_FIX */
 	  /* Fix UDP length  and set source port */
 	  udp0->length = payload_l0;
@@ -496,7 +495,7 @@ vxlan_encap_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FIX
           /* Fix UDP length  and set source port */
           udp0->length = payload_l0;
-		  udp0->src_port = clib_host_to_net_u16 (t0->src_port);
+		  udp0->src_port = clib_host_to_net_u16 (vxm->vxlan_port);
 #else /* FLEXIWAN_FIX */
 	  /* Fix UDP length  and set source port */
 	  udp0->length = payload_l0;

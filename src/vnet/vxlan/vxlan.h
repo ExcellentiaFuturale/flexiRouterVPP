@@ -155,7 +155,6 @@ typedef struct
   fib_route_path_t      rpath;
 #endif
 #ifdef FLEXIWAN_FEATURE
-  u16 src_port;
   u16 dest_port;
 #endif
 
@@ -210,8 +209,8 @@ typedef struct
   vxlan_tunnel_t *tunnels;
 
   /* lookup tunnel by key */
-  clib_bihash_16_8_t vxlan4_tunnel_by_key;	/* keyed on ipv4.dst + src_port + fib + vni */
-  clib_bihash_24_8_t vxlan6_tunnel_by_key;	/* keyed on ipv6.dst + src_port + fib + vni */
+  clib_bihash_16_8_t vxlan4_tunnel_by_key;	/* keyed on ipv4.dst + fib + vni */
+  clib_bihash_24_8_t vxlan6_tunnel_by_key;	/* keyed on ipv6.dst + fib + vni */
 
   /* local VTEP IPs ref count used by vxlan-bypass node to check if
      received VXLAN packet DIP matches any local VTEP address */
@@ -270,7 +269,6 @@ typedef struct
 #endif
 #ifdef FLEXIWAN_FEATURE
   /* adding dest port for vxlan tunnel in case destination behind NAT */
-  u16 src_port;
   u16 dest_port;
 #endif
 
@@ -321,10 +319,9 @@ vxlan4_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache4 * cache, u16 * cache_
   u32 dst = ip4_0->dst_address.as_u32;
   u32 src = ip4_0->src_address.as_u32;
   u16 src_port = clib_net_to_host_u16(udp0->src_port);
-  u16 dst_port = clib_net_to_host_u16(udp0->dst_port);
   vxlan4_tunnel_key_t key4 = {
     .key[0] = ((u64) dst << 32) | src,
-    .key[1] = ((u64) udp0->dst_port << 48) | ((u64) fib_index << 32) | vxlan0->vni_reserved,
+    .key[1] = ((u64) fib_index << 32) | vxlan0->vni_reserved,
   };
 
   if (PREDICT_TRUE
@@ -377,7 +374,7 @@ vxlan4_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache4 * cache, u16 * cache_
   u32 instance = vxm->tunnel_index_by_sw_if_index[mdi.sw_if_index];
   vxlan_tunnel_t *mcast_t0 = pool_elt_at_index (vxm->tunnels, instance);
   /* Validate VXLAN tunnel destination port against packet source port */
-  if (PREDICT_FALSE (mcast_t0->src_port != dst_port))
+  if (PREDICT_FALSE (mcast_t0->dest_port != src_port))
     return decap_not_found;
 
   /* mcast traffic does not update the cache */
