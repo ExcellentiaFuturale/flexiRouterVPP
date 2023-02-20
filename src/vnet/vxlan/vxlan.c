@@ -331,10 +331,11 @@ vxlan_rewrite (vxlan_tunnel_t * t, bool is_ip6)
     }
 
   /* UDP header, randomize src port on something, maybe? */
-  udp->src_port = clib_host_to_net_u16 (4789);
 #ifdef FLEXIWAN_FEATURE
-  udp->dst_port = clib_host_to_net_u16(t->dest_port);
+  udp->src_port = clib_host_to_net_u16 (vxlan_main.vxlan_port);
+  udp->dst_port = clib_host_to_net_u16 (t->dest_port);
 #else
+  udp->src_port = clib_host_to_net_u16 (4789);
   udp->dst_port = clib_host_to_net_u16 (UDP_DST_PORT_vxlan);
 #endif
 
@@ -409,6 +410,12 @@ int vnet_vxlan_add_del_tunnel
   vxlan4_tunnel_key_t key4;
   vxlan6_tunnel_key_t key6;
   u32 is_ip6 = a->is_ip6;
+
+#ifdef FLEXIWAN_FEATURE
+  /* Set udp-ports */
+  if (a->dest_port == 0)
+    a->dest_port = vxlan_main.vxlan_port;
+#endif
 
   int not_found;
   if (!is_ip6)
@@ -717,12 +724,21 @@ int vnet_vxlan_add_del_tunnel
   if (a->is_add)
     {
       /* register udp ports */
+#ifdef FLEXIWAN_FEATURE
+      if (!is_ip6 && !udp_is_valid_dst_port (vxm->vxlan_port, 1))
+	udp_register_dst_port (vxm->vlib_main, vxm->vxlan_port,
+			       vxlan4_input_node.index, 1);
+      if (is_ip6 && !udp_is_valid_dst_port (vxm->vxlan_port, 0))
+	udp_register_dst_port (vxm->vlib_main, vxm->vxlan_port,
+			       vxlan6_input_node.index, 0);
+#else
       if (!is_ip6 && !udp_is_valid_dst_port (UDP_DST_PORT_vxlan, 1))
 	udp_register_dst_port (vxm->vlib_main, UDP_DST_PORT_vxlan,
 			       vxlan4_input_node.index, 1);
       if (is_ip6 && !udp_is_valid_dst_port (UDP_DST_PORT_vxlan6, 0))
 	udp_register_dst_port (vxm->vlib_main, UDP_DST_PORT_vxlan6,
 			       vxlan6_input_node.index, 0);
+#endif /* FLEXIWAN_FEATURE */
     }
 
   return 0;
@@ -888,11 +904,6 @@ vxlan_add_del_tunnel_command_fn (vlib_main_t * vm,
   if (vni >> 24)
     return clib_error_return (0, "vni %d out of range", vni);
 
-#ifdef FLEXIWAN_FEATURE
-  if (dest_port == 0)
-    return clib_error_return (0, "dest_port not specified");
-#endif
-
   vnet_vxlan_add_del_tunnel_args_t a = {
     .is_add = is_add,
     .is_ip6 = ipv6_set,
@@ -986,6 +997,10 @@ show_vxlan_tunnel_command_fn (vlib_main_t * vm,
 	return clib_error_return (0, "parse error: '%U'",
 				  format_unformat_error, input);
     }
+
+#ifdef FLEXIWAN_FEATURE
+  vlib_cli_output (vm, "Default port: %u\n", vxm->vxlan_port);
+#endif
 
   if (pool_elts (vxm->tunnels) == 0)
     vlib_cli_output (vm, "No vxlan tunnels configured...");
@@ -1250,7 +1265,9 @@ vnet_vxlan_add_del_rx_flow (u32 hw_if_index, u32 t_index, int is_add)
 			  .src_addr.mask.as_u32 = ~0,
 			  .dst_addr.mask.as_u32 = ~0,
 #ifdef FLEXIWAN_FEATURE
-        .dst_port.port = t->dest_port,
+        .src_port.port = t->dest_port,
+        .src_port.mask = 0xFF,
+        .dst_port.port = vxm->vxlan_port,
 #else
 			  .dst_port.port = UDP_DST_PORT_vxlan,
 #endif
@@ -1350,6 +1367,47 @@ VLIB_CLI_COMMAND (vxlan_offload_command, static) = {
 };
 /* *INDENT-ON* */
 
+#ifdef FLEXIWAN_FEATURE
+static clib_error_t *
+set_vxlan_default_port (vlib_main_t * vm,
+		      unformat_input_t * input, vlib_cli_command_t * cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  clib_error_t *error = 0;
+
+  if (!unformat_user (input, unformat_line_input, line_input))
+    return 0;
+
+  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+  {
+    if (!unformat (line_input, "%u", &vxlan_main.vxlan_port))
+    {
+      error = unformat_parse_error (line_input);
+      goto done;
+    }
+  }
+
+done:
+  unformat_free (line_input);
+  return error;
+}
+
+/*?
+ * This command changes the default port for vxlan protocol instead of 4789.
+ *
+ * @cliexpar
+ * Example of how to set default vxlan port:
+ * @cliexcmd{set vxlan default-port 5000}
+?*/
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (set_vxlan_default_port_command, static) = {
+  .path = "set vxlan default-port",
+  .function = set_vxlan_default_port,
+  .short_help = "set vxlan default-port [nn]",
+};
+/* *INDENT-ON* */
+#endif /* #ifdef FLEXIWAN_FEATURE */
+
 #define VXLAN_HASH_NUM_BUCKETS (2 * 1024)
 #define VXLAN_HASH_MEMORY_SIZE (1 << 20)
 
@@ -1360,6 +1418,10 @@ vxlan_init (vlib_main_t * vm)
 
   vxm->vnet_main = vnet_get_main ();
   vxm->vlib_main = vm;
+
+#ifdef FLEXIWAN_FEATURE
+  vxm->vxlan_port = UDP_DST_PORT_vxlan;
+#endif
 
   vnet_flow_get_range (vxm->vnet_main, "vxlan", 1024 * 1024,
 		       &vxm->flow_id_start);

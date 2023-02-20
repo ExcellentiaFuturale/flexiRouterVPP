@@ -40,9 +40,7 @@
 #include <vnet/feature/feature.h>
 #include <vnet/vxlan/vxlan.h>
 #include <vnet/fib/fib_table.h>
-
 #include <vnet/ip/ip_types_api.h>
-
 #include <vnet/vnet_msg_enum.h>
 
 #define vl_typedefs		/* define message structures */
@@ -201,7 +199,7 @@ static void vl_api_vxlan_add_del_tunnel_t_handler
 #ifdef FLEXIWAN_FEATURE
   /* set default port if none is provided */
   if (a.dest_port == 0)
-    a.dest_port = UDP_DST_PORT_vxlan;
+    a.dest_port = vxlan_main.vxlan_port;
 #endif
   /* Check src & dst are different */
   if (ip46_address_cmp (&a.dst, &a.src) == 0)
