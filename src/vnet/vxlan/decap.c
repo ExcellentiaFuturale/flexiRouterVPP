@@ -35,6 +35,7 @@
  *     These tunnels do not need NAT, so there is no need to create NAT session
  *     for them. That improves performance on multi-core machines,
  *     as NAT session are bound to the specific worker thread / core.
+ *   - custom source and destination vxLan port instead of hardcoded 4789.
  */
 
 #include <vlib/vlib.h>
@@ -152,7 +153,7 @@ vxlan6_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache6 * cache,
   if (PREDICT_FALSE (vxlan0->flags != VXLAN_FLAGS_I))
     return decap_bad_flags;
 
-  /* Make sure VXLAN tunnel exist according to packet SIP and VNI */
+  /* Make sure VXLAN tunnel exist according to packet SIP, FIB and VNI */
   vxlan6_tunnel_key_t key6 = {
     .key[0] = ip6_0->src_address.as_u64[0],
     .key[1] = ip6_0->src_address.as_u64[1],
@@ -762,8 +763,13 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  else
 	    udp0 = ip6_next_header (ip60);
 
+#ifdef FLEXIWAN_FEATURE
+	  if (udp0->dst_port != clib_host_to_net_u16 (vxm->vxlan_port))
+	    goto exit0;		/* not VXLAN packet */
+#else
 	  if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
 	    goto exit0;		/* not VXLAN packet */
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 	  /* Validate DIP against VTEPs */
 	  if (is_ip4)
@@ -841,8 +847,13 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  else
 	    udp1 = ip6_next_header (ip61);
 
+#ifdef FLEXIWAN_FEATURE
+	  if (udp1->dst_port != clib_host_to_net_u16 (vxm->vxlan_port))
+	    goto exit1;		/* not VXLAN packet */
+#else
 	  if (udp1->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
 	    goto exit1;		/* not VXLAN packet */
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 	  /* Validate DIP against VTEPs */
 	  if (is_ip4)
@@ -957,8 +968,13 @@ ip_vxlan_bypass_inline (vlib_main_t * vm,
 	  else
 	    udp0 = ip6_next_header (ip60);
 
+#ifdef FLEXIWAN_FEATURE
+	  if (udp0->dst_port != clib_host_to_net_u16 (vxm->vxlan_port))
+	    goto exit;		/* not VXLAN packet */
+#else
 	  if (udp0->dst_port != clib_host_to_net_u16 (UDP_DST_PORT_vxlan))
 	    goto exit;		/* not VXLAN packet */
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
 	  /* Validate DIP against VTEPs */
 	  if (is_ip4)
