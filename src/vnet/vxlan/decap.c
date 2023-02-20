@@ -153,7 +153,7 @@ vxlan6_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache6 * cache,
   if (PREDICT_FALSE (vxlan0->flags != VXLAN_FLAGS_I))
     return decap_bad_flags;
 
-  /* Make sure VXLAN tunnel exist according to packet SIP, VRF and VNI */
+  /* Make sure VXLAN tunnel exist according to packet SIP, FIB and VNI */
   vxlan6_tunnel_key_t key6 = {
     .key[0] = ip6_0->src_address.as_u64[0],
     .key[1] = ip6_0->src_address.as_u64[1],

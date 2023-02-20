@@ -82,7 +82,7 @@ format_vxlan_tunnel (u8 * s, va_list * args)
 	      t->dev_instance, t->user_instance,
 	      format_ip46_address, &t->src, IP46_TYPE_ANY,
 	      format_ip46_address, &t->dst, IP46_TYPE_ANY,
-        t->vni, t->encap_fib_index, t->sw_if_index, t->dest_port);
+	      t->vni, t->encap_fib_index, t->sw_if_index, t->dest_port);
 #else
      s = format (s,
 	      "[%d] instance %d src %U dst %U vni %d fib-idx %d sw-if-idx %d",
@@ -1031,8 +1031,7 @@ show_vxlan_tunnel_command_fn (vlib_main_t * vm,
  * @cliexpar
  * Example of how to display the VXLAN Tunnel entries:
  * @cliexstart{show vxlan tunnel}
- * [0] src 10.0.3.1 dst 10.0.3.3 src_port 4789 dest_port 4789 vni 13 
- * encap_fib_index 0 sw_if_index 5 decap_next l2
+ * [0] src 10.0.3.1 dst 10.0.3.3 vni 13 encap_fib_index 0 sw_if_index 5 decap_next l2
  * @cliexend
  ?*/
 /* *INDENT-OFF* */
@@ -1266,6 +1265,8 @@ vnet_vxlan_add_del_rx_flow (u32 hw_if_index, u32 t_index, int is_add)
 			  .src_addr.mask.as_u32 = ~0,
 			  .dst_addr.mask.as_u32 = ~0,
 #ifdef FLEXIWAN_FEATURE
+        .src_port.port = t->dest_port,
+        .src_port.mask = 0xFF,
         .dst_port.port = vxm->vxlan_port,
 #else
 			  .dst_port.port = UDP_DST_PORT_vxlan,
