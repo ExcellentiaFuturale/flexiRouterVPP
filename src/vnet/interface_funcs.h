@@ -37,6 +37,12 @@
  *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - API to check if this interface is a subinterface. It is ported from next release.
+ */
+
 #ifndef included_vnet_interface_funcs_h
 #define included_vnet_interface_funcs_h
 
@@ -341,6 +347,16 @@ vnet_sw_interface_is_up (vnet_main_t * vnm, u32 sw_if_index)
   return (vnet_sw_interface_is_admin_up (vnm, sw_if_index) &&
 	  vnet_sw_interface_is_link_up (vnm, sw_if_index));
 }
+
+#ifdef FLEXIWAN_FEATURE
+always_inline uword
+vnet_sw_interface_is_sub (vnet_main_t *vnm, u32 sw_if_index)
+{
+  vnet_sw_interface_t *sw = vnet_get_sw_interface (vnm, sw_if_index);
+
+  return (sw->sw_if_index != sw->sup_sw_if_index);
+}
+#endif
 
 always_inline vlib_frame_t *
 vnet_get_frame_to_sw_interface (vnet_main_t * vnm, u32 sw_if_index)
