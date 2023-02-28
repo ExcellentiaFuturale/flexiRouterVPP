@@ -150,7 +150,6 @@ do {                                                                          \
        clib_error(_format, _val);                                             \
      else                                                                     \
        clib_warning(_format, _val);                                           \
-   }                                                                          \
 } while (0)
 #else
 #define ikev2_elog_uint(_level, _format, _val)                                \
@@ -171,6 +170,7 @@ do {                                                                          \
       ed->val = _val;                                                         \
     }                                                                         \
 } while (0)
+#endif
 
 #define ikev2_elog_uint_peers(_level, _format, _val, _ip1, _ip2)              \
 do {                                                                          \
