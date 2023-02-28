@@ -135,6 +135,12 @@ do {                                                                          \
 #define IKE_ELOG_IP4_FMT "%d.%d.%d.%d"
 #define IKE_ELOG_IP6_FMT "[v6]:%x%x:%x%x"
 
+#ifdef FLEXIWAN_FEATURE
+#define ikev2_elog_exchange(_fmt, _ispi, _rspi, _addr, _v4)                   \
+do {                                                                          \
+    clib_warning (_fmt, _ispi, _rspi);                                        \
+} while (0)
+#else
 #define ikev2_elog_exchange(_fmt, _ispi, _rspi, _addr, _v4)                   \
 do {                                                                          \
   if (_v4)                                                                    \
@@ -142,6 +148,7 @@ do {                                                                          \
   else                                                                        \
     ikev2_elog_exchange_internal (_fmt IKE_ELOG_IP6_FMT, _ispi, _rspi, _addr);\
 } while (0)
+#endif
 
 #ifdef FLEXIWAN_FEATURE
 #define ikev2_elog_uint(_level, _format, _val)                                \
