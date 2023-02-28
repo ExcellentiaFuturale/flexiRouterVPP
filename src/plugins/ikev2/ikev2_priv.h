@@ -143,6 +143,16 @@ do {                                                                          \
     ikev2_elog_exchange_internal (_fmt IKE_ELOG_IP6_FMT, _ispi, _rspi, _addr);\
 } while (0)
 
+#ifdef FLEXIWAN_FEATURE
+#define ikev2_elog_uint(_level, _format, _val)                                \
+do {                                                                          \
+     if (_level == IKEV2_LOG_ERROR)                                           \
+       clib_error(_format, _val);                                             \
+     else                                                                     \
+       clib_warning(_format, _val);                                           \
+   }                                                                          \
+} while (0)
+#else
 #define ikev2_elog_uint(_level, _format, _val)                                \
 do {                                                                          \
   ikev2_main_t *km = &ikev2_main;                                             \
@@ -189,6 +199,16 @@ do {                                                                          \
     }                                                                         \
 } while (0)
 
+#ifdef FLEXIWAN_FEATURE
+#define ikev2_elog_error(_msg) \
+  clib_error(_msg)
+#define ikev2_elog_warning(_msg) \
+  clib_warning(_msg)
+#define ikev2_elog_debug(_msg) \
+  clib_warning(_msg)
+#define ikev2_elog_detail(_msg) \
+  clib_warning(_msg)
+#else
 #define ikev2_elog_error(_msg) \
   _ikev2_elog(IKEV2_LOG_ERROR, "[error] " _msg)
 #define ikev2_elog_warning(_msg) \
@@ -197,6 +217,7 @@ do {                                                                          \
   _ikev2_elog(IKEV2_LOG_DEBUG, "[debug] " _msg)
 #define ikev2_elog_detail(_msg) \
   _ikev2_elog(IKEV2_LOG_DETAIL, "[detail] " _msg)
+#endif
 
 /* logging for main thread */
 #define ikev2_log_error(...) \

@@ -73,10 +73,17 @@ static int ikev2_delete_tunnel_interface (vnet_main_t * vnm,
 					  ikev2_sa_t * sa,
 					  ikev2_child_sa_t * child);
 
+#ifdef FLEXIWAN_FEATURE
+#define ikev2_set_state(sa, v, ...) do { \
+    (sa)->state = v; \
+    clib_warning("ispi %lx SA state changed to " #v __VA_ARGS__, sa->ispi); \
+  } while(0);
+#else
 #define ikev2_set_state(sa, v, ...) do { \
     (sa)->state = v; \
     ikev2_elog_sa_state("ispi %lx SA state changed to " #v __VA_ARGS__, sa->ispi); \
   } while(0);
+#endif
 
 typedef struct
 {
