@@ -13,6 +13,13 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Fixed memory leak in "show memory main-heap" command
+ *
+ */
+
 #define _GNU_SOURCE
 #include <stdlib.h>
 #include <sys/types.h>
@@ -571,7 +578,11 @@ clib_mem_get_page_stats (void *start, clib_mem_page_sz_t log2_page_size,
   if (move_pages (0, n_pages, ptr, 0, status, 0) != 0)
     {
       stats->unknown = n_pages;
+#ifdef FLEXIWAN_FIX
+      goto done;
+#else
       return;
+#endif
     }
 
   for (i = 0; i < n_pages; i++)
@@ -586,6 +597,12 @@ clib_mem_get_page_stats (void *start, clib_mem_page_sz_t log2_page_size,
       else
 	stats->unknown++;
     }
+
+#ifdef FLEXIWAN_FIX
+done:
+  vec_free (status);
+  vec_free (ptr);
+#endif
 }
 
 
