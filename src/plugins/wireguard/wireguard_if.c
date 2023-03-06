@@ -304,7 +304,7 @@ wg_if_create (u32 user_instance,
   hw_if_index = vnet_register_interface (vnm,
 					 wg_if_device_class.index,
 					 t_idx,
-					 wg_hw_interface_class.index, t_idx);
+					 wg_hw_interface_class.index, t_idx, 0);
 
   hi = vnet_get_hw_interface (vnm, hw_if_index);
 

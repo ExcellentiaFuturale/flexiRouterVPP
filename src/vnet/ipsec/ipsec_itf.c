@@ -311,7 +311,7 @@ ipsec_itf_create (u32 user_instance, tunnel_mode_t mode, u32 * sw_if_indexp)
 					 (mode == TUNNEL_MODE_P2P ?
 					  ipsec_hw_interface_class.index :
 					  ipsec_p2mp_hw_interface_class.index),
-					 t_idx);
+					 t_idx, 0);
 
   hi = vnet_get_hw_interface (vnm, hw_if_index);
 

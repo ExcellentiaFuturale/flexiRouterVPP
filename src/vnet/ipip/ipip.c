@@ -729,7 +729,7 @@ ipip_add_tunnel (ipip_transport_t transport,
 					 (mode == IPIP_MODE_P2P ?
 					  ipip_hw_interface_class.index :
 					  mipip_hw_interface_class.index),
-					 t_idx);
+					 t_idx, 0);
 
   hi = vnet_get_hw_interface (vnm, hw_if_index);
   sw_if_index = hi->sw_if_index;

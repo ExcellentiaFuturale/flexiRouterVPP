@@ -26,6 +26,7 @@
  *     length is needed in systems where packet reordering is expected due to
  *     features like QoS. A low window length can lead to the wrong dropping of
  *     out-of-order packets that are outside the window as replayed packets.
+ *   - configurable suppression of the interface exposure to the VPPSB.
  */
 
 #include <vat/vat.h>
@@ -3752,6 +3753,9 @@ api_create_loopback (vat_main_t * vam)
   u8 mac_set = 0;
   u8 is_specified = 0;
   u32 user_instance = 0;
+#ifdef FLEXIWAN_FEATURE
+  vl_api_if_flexiwan_flags_t flexiwan_flags = 0;
+#endif /* FLEXIWAN_FEATURE */
   int ret;
 
   clib_memset (mac_address, 0, sizeof (mac_address));
@@ -3762,6 +3766,10 @@ api_create_loopback (vat_main_t * vam)
 	mac_set = 1;
       if (unformat (i, "instance %d", &user_instance))
 	is_specified = 1;
+#ifdef FLEXIWAN_FEATURE
+      if (unformat (i, "no-vppsb"))
+        flexiwan_flags |= IF_API_FLEXIWAN_FLAG_NO_VPPSB;
+#endif /* FLEXIWAN_FEATURE */
       else
 	break;
     }
@@ -3770,6 +3778,9 @@ api_create_loopback (vat_main_t * vam)
     {
       M (CREATE_LOOPBACK_INSTANCE, mp_lbi);
       mp_lbi->is_specified = is_specified;
+#ifdef FLEXIWAN_FEATURE /* configurable interface exposure to VPPSB */
+      mp_lbi->flexiwan_flags = htonl (flexiwan_flags);
+#endif /* FLEXIWAN_FEATURE */
       if (is_specified)
 	mp_lbi->user_instance = htonl (user_instance);
       if (mac_set)
@@ -3780,6 +3791,9 @@ api_create_loopback (vat_main_t * vam)
     {
       /* Construct the API message */
       M (CREATE_LOOPBACK, mp);
+#ifdef FLEXIWAN_FEATURE /* configurable interface exposure to VPPSB */
+      mp->flexiwan_flags = htonl (flexiwan_flags);
+#endif /* FLEXIWAN_FEATURE */
       if (mac_set)
 	clib_memcpy (mp->mac_address, mac_address, sizeof (mac_address));
       S (mp);
@@ -5393,6 +5407,10 @@ api_tap_create_v2 (vat_main_t * vam)
 	tap_flags |= TAP_API_FLAG_PACKED;
       else if (unformat (i, "in-order"))
 	tap_flags |= TAP_API_FLAG_IN_ORDER;
+#ifdef FLEXIWAN_FEATURE
+      else if (unformat (i, "no-vppsb"))
+	tap_flags |= TAP_API_FLAG_NO_VPPSB;
+#endif /* FLEXIWAN_FEATURE */
       else
 	break;
     }
@@ -14901,7 +14919,7 @@ echo (vat_main_t * vam)
 
 /* List of API message constructors, CLI names map to api_xxx */
 #define foreach_vpe_api_msg                                             \
-_(create_loopback,"[mac <mac-addr>] [instance <instance>]")             \
+_(create_loopback,"[mac <mac-addr>] [instance <instance>] [no-vppsb]")  \
 _(sw_interface_dump,"")                                                 \
 _(sw_interface_set_flags,                                               \
   "<intfc> | sw_if_index <id> admin-up | admin-down link-up | link down") \
@@ -14941,7 +14959,7 @@ _(l2_flags,                                                             \
 _(bridge_flags,                                                         \
   "bd_id <bridge-domain-id> [learn] [forward] [uu-flood] [flood] [arp-term] [disable]\n") \
 _(tap_create_v2,                                                        \
-  "id <num> [hw-addr <mac-addr>] [host-if-name <name>] [host-ns <name>] [num-rx-queues <num>] [rx-ring-size <num>] [tx-ring-size <num>] [host-bridge <name>] [host-mac-addr <mac-addr>] [host-ip4-addr <ip4addr/mask>] [host-ip6-addr <ip6addr/mask>] [host-mtu-size <mtu>] [gso | no-gso | csum-offload | gro-coalesce] [persist] [attach] [tun] [packed] [in-order]") \
+  "id <num> [hw-addr <mac-addr>] [host-if-name <name>] [host-ns <name>] [num-rx-queues <num>] [rx-ring-size <num>] [tx-ring-size <num>] [host-bridge <name>] [host-mac-addr <mac-addr>] [host-ip4-addr <ip4addr/mask>] [host-ip6-addr <ip6addr/mask>] [host-mtu-size <mtu>] [gso | no-gso | csum-offload | gro-coalesce] [persist] [attach] [tun] [packed] [in-order] [no-vppsb]") \
 _(tap_delete_v2,                                                        \
   "<vpp-if-name> | sw_if_index <id>")                                   \
 _(sw_interface_tap_v2_dump, "")                                         \

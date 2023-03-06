@@ -263,7 +263,7 @@ pg_interface_add_or_get (pg_main_t * pg, uword if_id, u8 gso_enabled,
 
       pi->id = if_id;
       ethernet_register_interface (vnm, pg_dev_class.index, i, hw_addr,
-				   &pi->hw_if_index, pg_eth_flag_change);
+				   &pi->hw_if_index, pg_eth_flag_change, 0);
       hi = vnet_get_hw_interface (vnm, pi->hw_if_index);
       if (gso_enabled)
 	{

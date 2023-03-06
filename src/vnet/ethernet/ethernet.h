@@ -37,6 +37,13 @@
  *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable suppression of the interface exposure to the VPPSB.
+ */
+
 #ifndef included_ethernet_h
 #define included_ethernet_h
 
@@ -360,7 +367,12 @@ clib_error_t *ethernet_register_interface (vnet_main_t * vnm,
 					   const u8 * address,
 					   u32 * hw_if_index_return,
 					   ethernet_flag_change_function_t
-					   flag_change);
+					   flag_change
+#ifdef FLEXIWAN_FEATURE
+                        ,
+             vnet_interface_flexiwan_flags_t flexiwan_flags
+#endif /* FLEXIWAN_FEATURE */
+             );
 
 void ethernet_delete_interface (vnet_main_t * vnm, u32 hw_if_index);
 
@@ -479,7 +491,11 @@ clib_error_t *next_by_ethertype_register (next_by_ethertype_t * l3_next,
 					  u32 ethertype, u32 next_index);
 
 int vnet_create_loopback_interface (u32 * sw_if_indexp, u8 * mac_address,
-				    u8 is_specified, u32 user_instance);
+				    u8 is_specified, u32 user_instance
+#ifdef FLEXIWAN_FEATURE
+        , vnet_interface_flexiwan_flags_t flexiwan_flags
+#endif /* FLEXIWAN_FEATURE */
+            );
 int vnet_delete_loopback_interface (u32 sw_if_index);
 int vnet_create_sub_interface (u32 sw_if_index, u32 id,
 			       u32 flags, u16 inner_vlan_id,

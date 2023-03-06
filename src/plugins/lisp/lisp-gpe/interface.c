@@ -459,7 +459,7 @@ lisp_gpe_create_iface (lisp_gpe_main_t * lgm, u32 vni, u32 dp_table,
   else
     {
       hw_if_index = vnet_register_interface (vnm, dev_class->index, vni,
-					     lisp_gpe_hw_class.index, 0);
+					     lisp_gpe_hw_class.index, 0, 0);
       hi = vnet_get_hw_interface (vnm, hw_if_index);
     }
 

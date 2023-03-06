@@ -398,7 +398,7 @@ int vnet_pppoe_add_del_session
 	{
 	  hw_if_index = vnet_register_interface
 	    (vnm, pppoe_device_class.index, t - pem->sessions,
-	     pppoe_hw_class.index, t - pem->sessions);
+	     pppoe_hw_class.index, t - pem->sessions, 0);
 	  hi = vnet_get_hw_interface (vnm, hw_if_index);
 	}
 

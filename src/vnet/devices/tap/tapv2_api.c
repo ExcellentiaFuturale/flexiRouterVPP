@@ -17,6 +17,12 @@
  *------------------------------------------------------------------
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - configurable suppression of the interface exposure to the VPPSB (no-vppsb flag)
+ */
+
 #include <vnet/vnet.h>
 #include <vlibmemory/api.h>
 
@@ -144,6 +150,10 @@ vl_api_tap_create_v2_t_handler (vl_api_tap_create_v2_t * mp)
 		 "tap packed api flag mismatch");
   STATIC_ASSERT (((int) TAP_API_FLAG_IN_ORDER ==
 		  (int) TAP_FLAG_IN_ORDER), "tap in-order api flag mismatch");
+#ifdef FLEXIWAN_FEATURE
+  STATIC_ASSERT (((int) TAP_API_FLAG_NO_VPPSB ==
+		  (int) TAP_FLAG_NO_VPPSB), "tap no-vppsb api flag mismatch");
+#endif /* FLEXIWAN_FEATURE */
 
   ap->tap_flags = ntohl (mp->tap_flags);
 

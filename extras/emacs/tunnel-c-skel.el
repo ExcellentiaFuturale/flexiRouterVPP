@@ -225,7 +225,7 @@ int vnet_" encap_stack "_add_del_tunnel
         {
           hw_if_index = vnet_register_interface
             (vnm, " encap_stack "_device_class.index, t - ngm->tunnels,
-             " encap_stack "_hw_class.index, t - ngm->tunnels);
+             " encap_stack "_hw_class.index, t - ngm->tunnels, 0);
           hi = vnet_get_hw_interface (vnm, hw_if_index);
           hi->output_node_index = " encap_stack "_encap_node.index;
         }

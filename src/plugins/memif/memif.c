@@ -969,7 +969,7 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
       error = ethernet_register_interface (vnm, memif_device_class.index,
 					   mif->dev_instance, args->hw_addr,
 					   &mif->hw_if_index,
-					   memif_eth_flag_change);
+					   memif_eth_flag_change, 0);
     }
   else if (mif->mode == MEMIF_INTERFACE_MODE_IP)
     {
@@ -977,7 +977,8 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
 	vnet_register_interface (vnm, memif_device_class.index,
 				 mif->dev_instance,
 				 memif_ip_hw_if_class.index,
-				 mif->dev_instance);
+				 mif->dev_instance,
+         0);
     }
   else
     error = clib_error_return (0, "unsupported interface mode");

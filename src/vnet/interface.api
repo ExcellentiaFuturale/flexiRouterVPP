@@ -14,6 +14,12 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - configurable suppression of the interface exposure to the VPPSB (no-vppsb flag)
+ */
+
 option version = "3.2.2";
 
 import "vnet/interface_types.api";
@@ -550,6 +556,7 @@ autoreply define delete_subif {
 /** \brief Create loopback interface request
     @param client_index - opaque cookie to identify the sender
     @param context - sender context, to match reply w/ request
+    @param flexiwan_flags - bit mask of flexiwan specific flags (see vnet_interface_flexiwan_flags_t)
     @param mac_address - mac addr to assign to the interface if none-zero
 */
 define create_loopback
@@ -557,6 +564,7 @@ define create_loopback
   u32 client_index;
   u32 context;
   vl_api_mac_address_t mac_address;
+  vl_api_if_flexiwan_flags_t flexiwan_flags;
 };
 
 /** \brief Create loopback interface response
@@ -576,6 +584,7 @@ define create_loopback_reply
     @param context - sender context, to match reply w/ request
     @param mac_address - mac addr to assign to the interface if none-zero
     @param is_specified - if non-0, a specific user_instance is being requested
+    @param flexiwan_flags - bit mask of flexiwan specific flags (see vnet_interface_flexiwan_flags_t)
     @param user_instance - requested instance, ~0 => dynamically allocate
 */
 define create_loopback_instance
@@ -585,6 +594,7 @@ define create_loopback_instance
   vl_api_mac_address_t mac_address;
   bool is_specified;
   u32 user_instance;
+  vl_api_if_flexiwan_flags_t flexiwan_flags;
 };
 
 /** \brief Create loopback interface instance response

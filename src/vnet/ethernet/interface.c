@@ -37,6 +37,13 @@
  *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable suppression of the interface exposure to the VPPSB.
+ */
+
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
 #include <vnet/pg/pg.h>
@@ -350,7 +357,12 @@ ethernet_register_interface (vnet_main_t * vnm,
 			     u32 dev_instance,
 			     const u8 * address,
 			     u32 * hw_if_index_return,
-			     ethernet_flag_change_function_t flag_change)
+			     ethernet_flag_change_function_t flag_change
+#ifdef FLEXIWAN_FEATURE
+                        ,
+           vnet_interface_flexiwan_flags_t flexiwan_flags
+#endif /* FLEXIWAN_FEATURE */
+           )
 {
   ethernet_main_t *em = &ethernet_main;
   ethernet_interface_t *ei;
@@ -364,7 +376,7 @@ ethernet_register_interface (vnet_main_t * vnm,
   hw_if_index = vnet_register_interface
     (vnm,
      dev_class_index, dev_instance,
-     ethernet_hw_interface_class.index, ei - em->interfaces);
+     ethernet_hw_interface_class.index, ei - em->interfaces, flexiwan_flags);
   *hw_if_index_return = hw_if_index;
 
   hi = vnet_get_hw_interface (vnm, hw_if_index);
@@ -829,7 +841,11 @@ loopback_instance_free (u32 instance)
 
 int
 vnet_create_loopback_interface (u32 * sw_if_indexp, u8 * mac_address,
-				u8 is_specified, u32 user_instance)
+				u8 is_specified, u32 user_instance
+#ifdef FLEXIWAN_FEATURE
+        , vnet_interface_flexiwan_flags_t flexiwan_flags
+#endif /* FLEXIWAN_FEATURE */
+        )
 {
   vnet_main_t *vnm = vnet_get_main ();
   vlib_main_t *vm = vlib_get_main ();
@@ -874,7 +890,7 @@ vnet_create_loopback_interface (u32 * sw_if_indexp, u8 * mac_address,
   error = ethernet_register_interface
     (vnm,
      ethernet_simulated_device_class.index, instance, address, &hw_if_index,
-     /* flag change */ 0);
+     /* flag change */ 0, flexiwan_flags);
 
   if (error)
     {
@@ -916,6 +932,9 @@ create_simulated_ethernet_interfaces (vlib_main_t * vm,
   u8 mac_address[6];
   u8 is_specified = 0;
   u32 user_instance = 0;
+#ifdef FLEXIWAN_FEATURE
+  vnet_interface_flexiwan_flags_t flexiwan_flags = 0;
+#endif
 
   clib_memset (mac_address, 0, sizeof (mac_address));
 
@@ -925,12 +944,16 @@ create_simulated_ethernet_interfaces (vlib_main_t * vm,
 	;
       if (unformat (input, "instance %d", &user_instance))
 	is_specified = 1;
+#ifdef FLEXIWAN_FEATURE
+      if (unformat (input, "no_vppsb"))
+        flexiwan_flags |= VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB;
+#endif
       else
 	break;
     }
 
   rv = vnet_create_loopback_interface (&sw_if_index, mac_address,
-				       is_specified, user_instance);
+				       is_specified, user_instance, flexiwan_flags);
 
   if (rv)
     return clib_error_return (0, "vnet_create_loopback_interface failed");

@@ -147,7 +147,8 @@ fib_test_mk_intf (u32 ninterfaces)
                                             i /* instance */,
                                             hw_address,
                                             &tm->hw_if_indicies[i],
-                                            /* flag change */ 0);
+                                            /* flag change */ 0,
+                                            /* flexiwan flags */ 0);
 
         FIB_TEST((NULL == error), "ADD interface %d", i);
 
@@ -5138,7 +5139,8 @@ fib_test_v6 (void)
                                         0 /* instance */,
                                         hw_address,
                                         &tm->hw_if_indicies[0],
-                                        /* flag change */ 0);
+                                        /* flag change */ 0,
+                                        /* flexiwan flags */ 0);
 
     fei = fib_table_lookup_exact_match(fib_index, &pfx_2001_b_s_64);
     FIB_TEST(load_balance_is_drop(fib_entry_contribute_ip_forwarding(fei)),

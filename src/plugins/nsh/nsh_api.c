@@ -399,7 +399,7 @@ nsh_add_del_map (nsh_add_del_map_args_t * a, u32 * map_indexp)
 	{
 	  nsh_hw_if = vnet_register_interface
 	    (vnm, nsh_device_class.index, map_index, nsh_hw_class.index,
-	     map_index);
+	     map_index, 0);
 	  hi = vnet_get_hw_interface (vnm, nsh_hw_if);
 	  hi->output_node_index = nsh_aware_vnf_proxy_node.index;
 	}
