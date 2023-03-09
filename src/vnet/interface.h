@@ -534,6 +534,11 @@ typedef enum vnet_interface_flexiwan_flags_t_
   /* The interface should not be exposed to Linux through the VPPSB
   */
   VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB = (1 << 0),
+
+  /* The interface should be exposed to Linux by VPPSB using TUN (and not TAP)
+  */
+  VNET_INTERFACE_FLEXIWAN_FLAG_VPPSB_TUN = (1 << 1),
+
 } vnet_interface_flexiwan_flags_t;
 #endif /* FLEXIWAN_FEATURE */
 

@@ -947,6 +947,8 @@ create_simulated_ethernet_interfaces (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE
       if (unformat (input, "no_vppsb"))
         flexiwan_flags |= VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB;
+      if (unformat (input, "vppsb_tun"))
+        flexiwan_flags |= VNET_INTERFACE_FLEXIWAN_FLAG_VPPSB_TUN;
 #endif
       else
 	break;

@@ -81,5 +81,6 @@ enum if_type
 };
 
 enum if_flexiwan_flags {
-  IF_API_FLEXIWAN_FLAG_NO_VPPSB = 1, /* ignore interface by VPPSB */
+  IF_API_FLEXIWAN_FLAG_NO_VPPSB       = 1, /* ignore interface by VPPSB */
+  IF_API_FLEXIWAN_FLAG_VPPSB_TUN      = 2, /* VPPSB uses TUN and not TAP to expose the interface to Linux*/
 };

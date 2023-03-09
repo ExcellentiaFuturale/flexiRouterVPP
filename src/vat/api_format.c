@@ -3769,6 +3769,8 @@ api_create_loopback (vat_main_t * vam)
 #ifdef FLEXIWAN_FEATURE
       if (unformat (i, "no-vppsb"))
         flexiwan_flags |= IF_API_FLEXIWAN_FLAG_NO_VPPSB;
+      if (unformat (i, "vppsb-tun"))
+        flexiwan_flags |= IF_API_FLEXIWAN_FLAG_VPPSB_TUN;
 #endif /* FLEXIWAN_FEATURE */
       else
 	break;
@@ -14919,7 +14921,7 @@ echo (vat_main_t * vam)
 
 /* List of API message constructors, CLI names map to api_xxx */
 #define foreach_vpe_api_msg                                             \
-_(create_loopback,"[mac <mac-addr>] [instance <instance>] [no-vppsb]")  \
+_(create_loopback,"[mac <mac-addr>] [instance <instance>] [no-vppsb] [vppsb-tun]")  \
 _(sw_interface_dump,"")                                                 \
 _(sw_interface_set_flags,                                               \
   "<intfc> | sw_if_index <id> admin-up | admin-down link-up | link down") \
