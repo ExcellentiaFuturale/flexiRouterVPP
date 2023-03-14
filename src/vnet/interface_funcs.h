@@ -236,10 +236,9 @@ u32 vnet_register_interface (vnet_main_t * vnm,
 
 #ifdef FLEXIWAN_FEATURE
 always_inline vnet_sw_interface_flags_t
-vnet_hw_interface_get_flexiwan_flag (vnet_main_t * vnm, vnet_hw_interface_t *hw, u32 hw_if_index, vnet_interface_flexiwan_flags_t flag)
+vnet_hw_interface_get_flexiwan_flag (vnet_main_t * vnm, u32 hw_if_index, vnet_interface_flexiwan_flags_t flag)
 {
-  if (!hw)
-    hw = vnet_get_hw_interface (vnm, hw_if_index);
+  vnet_hw_interface_t *hw = vnet_get_hw_interface (vnm, hw_if_index);
   return (hw->flexiwan_flags & flag);
 }
 #endif /* FLEXIWAN_FEATURE */
