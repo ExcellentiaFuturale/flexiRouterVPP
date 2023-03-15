@@ -339,7 +339,7 @@ create_simulated_srp_interfaces (vlib_main_t * vm,
   hw_if_index = vnet_register_interface (vnm,
 					 srp_simulated_device_class.index,
 					 instance++,
-					 srp_hw_interface_class.index, 0);
+					 srp_hw_interface_class.index, 0, 0);
 
   hi = vnet_get_hw_interface (vnm, hw_if_index);
 

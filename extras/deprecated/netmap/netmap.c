@@ -215,7 +215,7 @@ netmap_create_if (vlib_main_t * vm, u8 * if_name, u8 * hw_addr_set,
   error = ethernet_register_interface (vnm, netmap_device_class.index,
 				       nif->if_index, hw_addr,
 				       &nif->hw_if_index,
-				       netmap_eth_flag_change);
+				       netmap_eth_flag_change, 0);
 
   if (error)
     {

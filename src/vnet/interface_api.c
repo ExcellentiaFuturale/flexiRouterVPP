@@ -17,6 +17,13 @@
  *------------------------------------------------------------------
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable suppression of the interface exposure to the VPPSB.
+ */
+
 #include <vnet/vnet.h>
 #include <vlibmemory/api.h>
 
@@ -1311,8 +1318,16 @@ vl_api_create_loopback_t_handler (vl_api_create_loopback_t * mp)
   int rv;
   mac_address_t mac;
 
+#ifdef FLEXIWAN_FEATURE /* configurable interface exposure to VPPSB */
+  vnet_interface_flexiwan_flags_t flexiwan_flags = 0;
+  if ((ntohl (mp->flexiwan_flags)) & IF_API_FLEXIWAN_FLAG_NO_VPPSB)
+    flexiwan_flags |= VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB;
+  if ((ntohl (mp->flexiwan_flags)) & IF_API_FLEXIWAN_FLAG_VPPSB_TUN)
+    flexiwan_flags |= VNET_INTERFACE_FLEXIWAN_FLAG_VPPSB_TUN;
+#endif /* FLEXIWAN_FEATURE */
+
   mac_address_decode (mp->mac_address, &mac);
-  rv = vnet_create_loopback_interface (&sw_if_index, (u8 *) & mac, 0, 0);
+  rv = vnet_create_loopback_interface (&sw_if_index, (u8 *) & mac, 0, 0, flexiwan_flags);
 
   /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_CREATE_LOOPBACK_REPLY,
@@ -1332,9 +1347,17 @@ static void vl_api_create_loopback_instance_t_handler
   int rv;
   mac_address_t mac;
 
+#ifdef FLEXIWAN_FEATURE
+  vnet_interface_flexiwan_flags_t flexiwan_flags = 0;
+  if ((ntohl (mp->flexiwan_flags)) & IF_API_FLEXIWAN_FLAG_NO_VPPSB)
+    flexiwan_flags |= VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB;
+  if ((ntohl (mp->flexiwan_flags)) & IF_API_FLEXIWAN_FLAG_VPPSB_TUN)
+    flexiwan_flags |= VNET_INTERFACE_FLEXIWAN_FLAG_VPPSB_TUN;
+#endif /* FLEXIWAN_FEATURE */
+
   mac_address_decode (mp->mac_address, &mac);
   rv = vnet_create_loopback_interface (&sw_if_index, (u8 *) & mac,
-				       is_specified, user_instance);
+				       is_specified, user_instance, flexiwan_flags);
 
   /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_CREATE_LOOPBACK_INSTANCE_REPLY,

@@ -14,6 +14,13 @@
  * limitations under the License.
  *------------------------------------------------------------------
  */
+
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - configurable suppression of the interface exposure to the VPPSB (no-vppsb flag)
+ */
+
 #include <stdint.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -102,6 +109,10 @@ tap_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 	    args.tap_flags |= TAP_FLAG_PACKED;
 	  else if (unformat (line_input, "in-order"))
 	    args.tap_flags |= TAP_FLAG_IN_ORDER;
+#ifdef FLEXIWAN_FEATURE
+	  else if (unformat (line_input, "no-vppsb"))
+	    args.tap_flags |= TAP_FLAG_NO_VPPSB;
+#endif /* FLEXIWAN_FEATURE */
 	  else if (unformat (line_input, "hw-addr %U",
 			     unformat_ethernet_address, args.mac_addr.bytes))
 	    args.mac_addr_set = 1;
@@ -143,7 +154,7 @@ VLIB_CLI_COMMAND (tap_create_command, static) = {
     "[host-ip4-gw <ip4-addr>] [host-ip6-gw <ip6-addr>] "
     "[host-mac-addr <host-mac-address>] [host-if-name <name>] "
     "[host-mtu-size <size>] [no-gso|gso [gro-coalesce]|csum-offload] "
-    "[persist] [attach] [tun] [packed] [in-order]",
+    "[persist] [attach] [tun] [packed] [in-order] [no-vppsb]",
   .function = tap_create_command_fn,
 };
 /* *INDENT-ON* */

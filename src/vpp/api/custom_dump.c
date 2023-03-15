@@ -17,6 +17,12 @@
  * ------------------------------------------------------------------
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - configurable suppression of the interface exposure to the VPPSB (no-vppsb flag)
+ */
+
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
 #include <vnet/ip-neighbor/ip_neighbor.h>
@@ -571,6 +577,10 @@ static void *vl_api_tap_create_v2_t_print
     s = format (s, "packed ");
   if ((mp->tap_flags) & TAP_API_FLAG_IN_ORDER)
     s = format (s, "in-order ");
+#ifdef FLEXIWAN_FEATURE
+  if ((mp->tap_flags) & TAP_API_FLAG_NO_VPPSB)
+    s = format (s, "no-vppsb ");
+#endif /* FLEXIWAN_FEATURE */
   FINISH;
 }
 

@@ -227,7 +227,21 @@ void vnet_hw_interface_walk (vnet_main_t * vnm,
 u32 vnet_register_interface (vnet_main_t * vnm,
 			     u32 dev_class_index,
 			     u32 dev_instance,
-			     u32 hw_class_index, u32 hw_instance);
+			     u32 hw_class_index, u32 hw_instance
+#ifdef FLEXIWAN_FEATURE
+           ,
+           vnet_interface_flexiwan_flags_t flexiwan_flags
+#endif /* FLEXIWAN_FEATURE */
+           );
+
+#ifdef FLEXIWAN_FEATURE
+always_inline vnet_sw_interface_flags_t
+vnet_hw_interface_get_flexiwan_flag (vnet_main_t * vnm, u32 hw_if_index, vnet_interface_flexiwan_flags_t flag)
+{
+  vnet_hw_interface_t *hw = vnet_get_hw_interface (vnm, hw_if_index);
+  return (hw->flexiwan_flags & flag);
+}
+#endif /* FLEXIWAN_FEATURE */
 
 /**
  * Set interface output node - for interface registered without its output/tx

@@ -794,7 +794,12 @@ u32
 vnet_register_interface (vnet_main_t * vnm,
 			 u32 dev_class_index,
 			 u32 dev_instance,
-			 u32 hw_class_index, u32 hw_instance)
+			 u32 hw_class_index, u32 hw_instance
+#ifdef FLEXIWAN_FEATURE
+                                           ,
+       vnet_interface_flexiwan_flags_t flexiwan_flags
+#endif /* FLEXIWAN_FEATURE */
+       )
 {
   vnet_interface_main_t *im = &vnm->interface_main;
   vnet_hw_interface_t *hw;
@@ -816,6 +821,10 @@ vnet_register_interface (vnet_main_t * vnm,
   hw_index = hw - im->hw_interfaces;
   hw->hw_if_index = hw_index;
   hw->default_rx_mode = VNET_HW_IF_RX_MODE_POLLING;
+
+#ifdef FLEXIWAN_FEATURE
+  hw->flexiwan_flags = flexiwan_flags;
+#endif /* FLEXIWAN_FEATURE */
 
   if (dev_class->format_device_name)
     hw->name = format (0, "%U", dev_class->format_device_name, dev_instance);

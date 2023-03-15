@@ -313,7 +313,7 @@ sixrd_add_tunnel (ip6_address_t * ip6_prefix, u8 ip6_prefix_len,
   u32 hw_if_index =
     vnet_register_interface (vnet_get_main (), sixrd_device_class.index,
 			     t_idx,
-			     sixrd_hw_interface_class.index, t_idx);
+			     sixrd_hw_interface_class.index, t_idx, 0);
 
   /* Default the interface to up and enable IPv6 (payload) */
   vnet_hw_interface_t *hi =

@@ -490,7 +490,8 @@ gbp_vxlan_tunnel_add (u32 vni, gbp_vxlan_tunnel_layer_t layer,
 						    gbp_vxlan_device_class.index,
 						    gti,
 						    gbp_vxlan_hw_interface_class.index,
-						    gti);
+						    gti,
+                0);
 
       hi = vnet_get_hw_interface (vnm, gt->gt_hw_if_index);
 

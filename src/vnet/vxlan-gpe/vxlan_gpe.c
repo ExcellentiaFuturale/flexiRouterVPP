@@ -556,7 +556,7 @@ int vnet_vxlan_gpe_add_del_tunnel
 	{
 	  hw_if_index = vnet_register_interface
 	    (vnm, vxlan_gpe_device_class.index, t - ngm->tunnels,
-	     vxlan_gpe_hw_class.index, t - ngm->tunnels);
+	     vxlan_gpe_hw_class.index, t - ngm->tunnels, 0);
 	  hi = vnet_get_hw_interface (vnm, hw_if_index);
 	}
 

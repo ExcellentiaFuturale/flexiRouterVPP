@@ -846,7 +846,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	{
 	  xd->hw_if_index = vnet_register_interface
 	    (dm->vnet_main, dpdk_device_class.index, xd->device_index,
-	     tun_device_hw_interface_class.index, 0);
+	     tun_device_hw_interface_class.index, 0, 0);
 	  hi = vnet_get_hw_interface (dm->vnet_main, xd->hw_if_index);
 	  xd->sw_if_index = hi->sw_if_index;
 
@@ -861,7 +861,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	  error = ethernet_register_interface
 	    (dm->vnet_main, dpdk_device_class.index, xd->device_index,
 	     /* ethernet address */ addr,
-	     &xd->hw_if_index, dpdk_flag_change);
+	     &xd->hw_if_index, dpdk_flag_change, 0);
 
 	  if (error)
 	    return error;
@@ -870,7 +870,7 @@ dpdk_lib_init (dpdk_main_t * dm)
       error = ethernet_register_interface
 	(dm->vnet_main, dpdk_device_class.index, xd->device_index,
 	 /* ethernet address */ addr,
-	 &xd->hw_if_index, dpdk_flag_change);
+	 &xd->hw_if_index, dpdk_flag_change, 0);
       if (error)
 	return error;
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */

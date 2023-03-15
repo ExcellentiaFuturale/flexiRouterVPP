@@ -431,7 +431,7 @@ int vnet_geneve_add_del_tunnel
 	  clib_error_t *error =
 	    ethernet_register_interface (vnm, geneve_device_class.index,
 					 t_idx,
-					 address, &hw_if_index, 0);
+					 address, &hw_if_index, 0, 0);
 	  if (error)
 	    {
 	      clib_error_report (error);
@@ -442,7 +442,7 @@ int vnet_geneve_add_del_tunnel
 	{
 	  hw_if_index = vnet_register_interface
 	    (vnm, geneve_device_class.index, t - vxm->tunnels,
-	     geneve_hw_class.index, t - vxm->tunnels);
+	     geneve_hw_class.index, t - vxm->tunnels, 0);
 	}
 
       hi = vnet_get_hw_interface (vnm, hw_if_index);

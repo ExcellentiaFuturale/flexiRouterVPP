@@ -1640,7 +1640,7 @@ avf_create_if (vlib_main_t * vm, avf_create_if_args_t * args)
   /* create interface */
   error = ethernet_register_interface (vnm, avf_device_class.index,
 				       ad->dev_instance, ad->hwaddr,
-				       &ad->hw_if_index, avf_flag_change);
+				       &ad->hw_if_index, avf_flag_change, 0);
 
   if (error)
     goto error;

@@ -13,6 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - configurable suppression of the interface exposure to the VPPSB (no-vppsb flag)
+ */
+
 option version = "1.0.0";
 
 typedef u32 interface_index;
@@ -71,4 +78,9 @@ enum if_type
 	IF_API_TYPE_SUB = 1,
 	IF_API_TYPE_P2P = 2,
 	IF_API_TYPE_PIPE = 3,
+};
+
+enum if_flexiwan_flags {
+  IF_API_FLEXIWAN_FLAG_NO_VPPSB       = 1, /* ignore interface by VPPSB */
+  IF_API_FLEXIWAN_FLAG_VPPSB_TUN      = 2, /* VPPSB uses TUN and not TAP to expose the interface to Linux*/
 };
