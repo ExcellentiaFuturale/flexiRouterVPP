@@ -25,6 +25,17 @@
  *  mark: Make a change to the content of a packet header by writing a stored
  *        QoS value
  */
+
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - qos_mark_buffer_metadata_map : It adds a map that can used to update
+ *  packet's QoS metadata values. The map uses the packet's QoS ID as the
+ *  key and the result shall be the value to be marked. One use case
+ *  for use of this support is, select QoS scheduler hierarchy based on the
+ *  packet's QoS ID value.
+ */
+
+
 option version = "1.1.1";
 
 import "vnet/ip/ip_types.api";
@@ -246,6 +257,54 @@ autoreply define qos_mark_details
   u32 context;
   vl_api_qos_mark_t mark;
 };
+
+
+/*
+ * #ifdef FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map
+ */
+typedef qos_buffer_metadata_map_key_value
+{
+    u32 key;
+    u32 value;
+};
+
+/**
+ * @brief Configure QoS buffer metadata ID Map
+ * @param client_index - opaque cookie to identify the sender
+ * @param context - sender context, to match reply w/ request
+ * @param sw_if_index - The interface whose map is to be updated
+ * @param count - The count of key value pair to be configured 
+ * @param key_value_pair - Array of key-value pairs to be added
+ */
+autoreply define qos_mark_buffer_metadata_map
+{
+  u32 client_index;
+  u32 context;
+  vl_api_interface_index_t sw_if_index;
+  u32 count;
+  vl_api_qos_buffer_metadata_map_key_value_t key_value_pairs[count];
+};
+
+/**
+ * @brief Delete QoS buffer metadata ID Map value(s)
+ * @param client_index - opaque cookie to identify the sender
+ * @param context - sender context, to match reply w/ request
+ * @param sw_if_index - The interface whose map is to be updated
+ * @param count - The count of keys to be deleted
+ * @param keys - Array of keys to be deleted from the map 
+ */
+autoreply define qos_mark_buffer_metadata_map_delete
+{
+  u32 client_index;
+  u32 context;
+  vl_api_interface_index_t sw_if_index;
+  u32 count;
+  u32 keys[count]; 
+};
+
+/*
+ * #endif FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map
+ */
 
 /*
  * Local Variables:

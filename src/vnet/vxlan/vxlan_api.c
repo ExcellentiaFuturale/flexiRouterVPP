@@ -192,7 +192,7 @@ static void vl_api_vxlan_add_del_tunnel_t_handler
 #endif
 
 #ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
-    .qos_hierarchy_id = clib_net_to_host_u16 (mp->qos_hierarchy_id),
+    .qos_id = clib_net_to_host_u32 (mp->qos_id),
 #endif  /* FLEXIWAN_FEATURE - acl_based_classification */
   };
 

@@ -276,7 +276,7 @@ _(decap_next_index)                             \
 _(src)                                          \
 _(dst)                                          \
 _(dest_port)                                    \
-_(qos_hierarchy_id)
+_(qos_id)
 #else /* FLEXIWAN_FEATURE - acl_based_classification */
 #define foreach_copy_field                      \
 _(vni)                                          \
@@ -800,7 +800,7 @@ vxlan_add_del_tunnel_command_fn (vlib_main_t * vm,
 #endif
 
 #ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
-  u16 qos_hierarchy_id = 0;
+  u32 qos_id = 0;
 #endif  /* FLEXIWAN_FEATURE - acl_based_classification */
   u32 table_id;
 
@@ -854,8 +854,7 @@ vxlan_add_del_tunnel_command_fn (vlib_main_t * vm,
 #endif
 
 #ifdef FLEXIWAN_FEATURE  /* acl_based_classification */
-      else if (unformat (line_input, "qos-hierarchy-id %d",
-			 &qos_hierarchy_id))
+      else if (unformat (line_input, "qos-id %u", &qos_id))
         ;
 #endif  /* FLEXIWAN_FEATURE - acl_based_classification */
       else

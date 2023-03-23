@@ -170,7 +170,7 @@ typedef struct
   u32 dev_instance;		/* Real device instance in tunnel vector */
   u32 user_instance;		/* Instance name being shown to user */
 #ifdef FLEXIWAN_FEATURE         /* acl_based_classification */
-  u16 qos_hierarchy_id;
+  u32 qos_id;
 #endif /* FLEXIWAN_FEATURE - acl_based_classification */
     VNET_DECLARE_REWRITE;
 } vxlan_tunnel_t;
@@ -273,7 +273,7 @@ typedef struct
 #endif
 
 #ifdef FLEXIWAN_FEATURE /* acl_based_classification */
-  u16 qos_hierarchy_id;
+  u32 qos_id;
 #endif /* FLEXIWAN_FEATURE - acl_based_classification */
 } vnet_vxlan_add_del_tunnel_args_t;
 

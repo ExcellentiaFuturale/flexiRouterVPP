@@ -42,9 +42,6 @@ classifier_acls_enable_disable (classifier_acls_main_t * cmp, u32 sw_if_index,
     return VNET_API_ERROR_INVALID_SW_IF_INDEX;
 
   sw = vnet_get_sw_interface (cmp->vnet_main, sw_if_index);
-  if (sw->type != VNET_SW_INTERFACE_TYPE_HARDWARE)
-    return VNET_API_ERROR_INVALID_SW_IF_INDEX;
-
   vec_validate_init_empty (cmp->acl_lc_index_by_sw_if_index, sw_if_index, ~0);
 
   vnet_feature_enable_disable ("ip4-unicast", "ip4-classifier-acls",

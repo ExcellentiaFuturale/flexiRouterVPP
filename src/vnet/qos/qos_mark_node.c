@@ -19,6 +19,13 @@
  *  ACL plugin. Matching ACLs provide the service class and importance
  *  attribute. The classification result is marked in the packet and can be
  *  made use of in other functions like scheduling, policing, marking etc.
+ *
+ *  - qos_mark_buffer_metadata_map : It adds a map that can used to update
+ *  packet's QoS metadata values. The map uses the packet's QoS ID as the
+ *  key and the result shall be the value to be marked. One use case
+ *  for use of this support is, select QoS scheduler hierarchy based on the
+ *  packet's QoS ID value.
+ *
  */
 #include <vnet/ip/ip.h>
 #include <vnet/feature/feature.h>
@@ -26,6 +33,9 @@
 #include <vnet/qos/qos_mark.h>
 
 extern index_t *qos_mark_configs[QOS_N_SOURCES];
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+extern uword *qos_mark_buffer_metadata_map;
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 
 always_inline qos_egress_map_t *
 qos_egress_map_interface (u32 sw_if_index, qos_source_t output_source)
@@ -45,6 +55,9 @@ typedef struct qos_mark_trace_t_
   qos_bits_t bits;
   qos_source_t input;
   u32 used;
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+  u32 buffer_metadata_value;
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 } qos_mark_trace_t;
 
 static inline uword
@@ -87,6 +100,21 @@ qos_mark_inline (vlib_main_t * vm,
 
 	  b0 = vlib_get_buffer (vm, bi0);
 	  sw_if_index0 = vnet_buffer (b0)->sw_if_index[VLIB_TX];
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+          uword * map = NULL; 
+          if (PREDICT_TRUE
+              (vec_len (qos_mark_buffer_metadata_map) >= sw_if_index0) &&
+              (qos_mark_buffer_metadata_map[sw_if_index0]))
+            {
+              /* Lookup and update the buffer metadata qos ID value */
+              map = hash_get
+                ((void *)qos_mark_buffer_metadata_map[sw_if_index0],
+                 (vnet_buffer2 (b0)->qos.id));
+              if (map)
+                vnet_buffer2 (b0)->qos.id = map[0];
+            }
+          qem0 = NULL;
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 	  input_source0 = vnet_buffer2 (b0)->qos.source;
 
 	  qem0 = qos_egress_map_interface (sw_if_index0, output_source);
@@ -94,8 +122,9 @@ qos_mark_inline (vlib_main_t * vm,
 
 #ifdef FLEXIWAN_FEATURE /* acl_based_classification */
 	  /* Change to process qos bits if classified-flag is set */ 
-         if (PREDICT_TRUE ((b0->flags & VNET_BUFFER_F_QOS_DATA_VALID) ||
-             (b0->flags & VNET_BUFFER_F_IS_CLASSIFIED)))
+         if (PREDICT_TRUE ((qem0) &&
+			   (b0->flags & VNET_BUFFER_F_QOS_DATA_VALID) ||
+			   (b0->flags & VNET_BUFFER_F_IS_CLASSIFIED)))
 #else   /* FLEXIWAN_FEATURE - acl_based_classification */
 	  if (PREDICT_TRUE (b0->flags & VNET_BUFFER_F_QOS_DATA_VALID))
 #endif  /* FLEXIWAN_FEATURE - acl_based_classification */
@@ -154,7 +183,12 @@ qos_mark_inline (vlib_main_t * vm,
 		vlib_add_trace (vm, node, b0, sizeof (*t));
 	      t->bits = qos0;
 	      t->input = input_source0;
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+	      t->used = (qem0) && (b0->flags & VNET_BUFFER_F_QOS_DATA_VALID);
+              t->buffer_metadata_value = (map ? map[0] : 0);
+#else /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 	      t->used = (b0->flags & VNET_BUFFER_F_QOS_DATA_VALID);
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 	    }
 
 	  /* verify speculative enqueue, maybe switch current next frame */
@@ -179,6 +213,11 @@ format_qos_mark_trace (u8 * s, va_list * args)
 
   s = format (s, "source:%U qos:%d used:%s",
 	      format_qos_source, t->input, t->bits, (t->used ? "yes" : "no"));
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+  if (t->buffer_metadata_value)
+    s = format (s, "\n  qos buffer metadata set with value: 0x%08x",
+                t->buffer_metadata_value);
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 
   return s;
 }

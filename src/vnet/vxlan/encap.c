@@ -318,8 +318,8 @@ vxlan_encap_inline (vlib_main_t * vm,
 	   * Copy qos identifiers configured for the tunnel into the packet
 	   * metadata.
 	   */
-	  vnet_buffer2 (b0)->qos.id_2 = t0->qos_hierarchy_id;
-	  vnet_buffer2 (b1)->qos.id_2 = t1->qos_hierarchy_id;
+	  vnet_buffer2 (b0)->qos.id = t0->qos_id;
+	  vnet_buffer2 (b1)->qos.id = t1->qos_id;
 #endif /* FLEXIWAN_FEATURE - acl_based_classification */
 	  if (csum_offload)
 	    {
@@ -516,7 +516,7 @@ vxlan_encap_inline (vlib_main_t * vm,
 	   * Copy qos identifiers configured for the tunnel into the packet
 	   * metadata.
 	   */
-	  vnet_buffer2 (b0)->qos.id_2 = t0->qos_hierarchy_id;
+	  vnet_buffer2 (b0)->qos.id = t0->qos_id;
 #endif
 
 	  if (csum_offload)

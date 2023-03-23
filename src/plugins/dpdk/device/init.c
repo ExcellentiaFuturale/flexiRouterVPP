@@ -826,9 +826,21 @@ dpdk_lib_init (dpdk_main_t * dm)
              devconf->hqos.hqos_thread = cpu;
            }
 
-         dpdk_device_config_hqos_default (&devconf->hqos);
-         clib_error_t *rv;
-         rv = dpdk_port_setup_hqos (xd, &devconf->hqos);
+         /*
+          * If no device specific limit for subports and pipes are provided,
+          * Use the default conf's subport and pipe limit
+          */
+         if ((devconf->hqos.max_subports == 0) && (default_devconf))
+           devconf->hqos.max_subports = default_devconf->hqos.max_subports;
+         if ((devconf->hqos.max_pipes == 0) && (default_devconf))
+           devconf->hqos.max_pipes = default_devconf->hqos.max_pipes;
+         dpdk_hqos_init_default_port_params
+                 (&devconf->hqos.port_params, devconf->hqos.max_subports,
+                  devconf->hqos.max_pipes);
+         devconf->hqos.swq_size = HQOS_SWQ_SIZE;
+         devconf->hqos.burst_enq = HQOS_BURST_ENQ;
+         devconf->hqos.burst_deq = HQOS_BURST_DEQ;
+         clib_error_t * rv = dpdk_port_setup_hqos (xd, &devconf->hqos);
          if (rv)
            return rv;
 

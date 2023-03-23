@@ -19,6 +19,12 @@
  *  ACL plugin. Matching ACLs provide the service class and importance
  *  attribute. The classification result is marked in the packet and can be
  *  made use of in other functions like scheduling, policing, marking etc.
+ *
+ *  - qos_mark_buffer_metadata_map : It adds a map that can used to update
+ *  packet's QoS metadata values. The map uses the packet's QoS ID as the
+ *  key and the result shall be the value to be marked. One use case
+ *  for use of this support is, select QoS scheduler hierarchy based on the
+ *  packet's QoS ID value.
  */
 
 #include <vnet/ip/ip.h>
@@ -31,6 +37,10 @@
  * for each output source
  */
 index_t *qos_mark_configs[QOS_N_SOURCES];
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+/* Map to maintain key-value pairs (buffer-qos-metadata ID, configured value)*/
+uword *qos_mark_buffer_metadata_map;
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 
 void
 qos_mark_ip_enable_disable (u32 sw_if_index, u8 enable)
@@ -291,6 +301,165 @@ VLIB_CLI_COMMAND (qos_mark_show_command, static) = {
   .is_mp_safe = 1,
 };
 /* *INDENT-ON* */
+
+
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+static clib_error_t *
+qos_mark_buffer_metadata_map_cli (vlib_main_t * vm, unformat_input_t * input,
+                                  vlib_cli_command_t * cmd)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  u32 sw_if_index = ~0;
+  u32 delete = 0;
+  u32 key;
+  u32 value;
+  u8 key_value_input = 0;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "%U",
+		    unformat_vnet_sw_interface, vnm, &sw_if_index))
+	;
+      else if (unformat (input, "key %u", &key))
+        key_value_input |= 1;
+      else if (unformat (input, "value %u", &value))
+        key_value_input |= 2;
+      else if (unformat (input, "del"))
+	delete = 1;
+      else
+	break;
+    }
+
+  if (sw_if_index == ~0)
+    return clib_error_return (0, "valid interface must be specified");
+  if ((!delete) && (key_value_input != 3))
+    return clib_error_return (0, "valid key and value must be specified");
+  if (delete)
+    {
+      if (!key_value_input)
+        return clib_error_return (0, "valid key must be specified");
+      else if (key_value_input != 1)
+        return clib_error_return (0, "delete should only specify the key");
+    }
+
+  if (delete)
+    {
+      if (vec_len (qos_mark_buffer_metadata_map) >= sw_if_index)
+        {
+          /* delete the entry using the key input */
+          void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
+          hash_unset (map, key);
+        }
+    }
+  else
+    {
+      vec_validate_init_empty (qos_mark_buffer_metadata_map, sw_if_index, 0);
+      if (!qos_mark_buffer_metadata_map[sw_if_index])
+        {
+          /* create new map if not exist for the sw_if_index */
+          qos_mark_buffer_metadata_map[sw_if_index] =
+            (uword) hash_create (0, sizeof (uword));
+        }
+      /* add key value pair to the map */
+      void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
+      hash_set (map, key, value);
+    }
+
+  return (NULL);
+}
+
+/*?
+ * Configure packet buffer-metadata-map
+ * The key is the value carried in the packet buffer's QoS metadata ID
+ * The set value provides additional context that can be used by QoS scheduling
+ * to identify a service-group, class or level in hierarchy
+ *
+ * @cliexpar
+ * @cliexcmd{qos mark-buffer-metadata-map <intf> key <integer> value <integer>}
+ ?*/
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (qos_mark_buffer_metadata_map_command, static) = {
+  .path = "qos mark-buffer-metadata-map",
+  .short_help =
+    "qos mark-buffer-metadata-map <intf> key [integer] value [integer] del",
+  .function = qos_mark_buffer_metadata_map_cli,
+};
+
+/* *INDENT-ON* */
+
+
+static clib_error_t *
+qos_mark_buffer_metadata_map_show_cli (vlib_main_t * vm,
+                                       unformat_input_t * input,
+                                       vlib_cli_command_t * cmd)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  u32 sw_if_index = ~0;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "%U",
+		    unformat_vnet_sw_interface, vnm, &sw_if_index))
+	;
+      else
+	break;
+    }
+
+  if (sw_if_index == ~0)
+    return clib_error_return (0, "valid interface must be specified");
+
+  if (vec_len (qos_mark_buffer_metadata_map) >= sw_if_index)
+    {
+      void *map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
+      if (map)
+        {
+          u32 key;
+          u32 value;
+          /* Iterate and print the configured map of key-value pairs */
+          vlib_cli_output(vm, "Key         Value \n");
+          /* *INDENT-OFF* */
+          hash_foreach
+            (key, value, map,
+             ({vlib_cli_output(vm, "%08X    %08X\n", key, value);}));
+          /* *INDENT-ON* */
+        }
+    }
+  return (NULL);
+}
+
+/*?
+ * Show the buffer-metadata-map configuration
+ *
+ * @cliexpar
+ * @cliexcmd{show qos mark buffer-metadata-map <interface>}
+ ?*/
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (qos_mark_buffer_metadata_map_show_command, static) = {
+  .path = "show qos mark-buffer-metadata-map",
+  .short_help = "show qos mark-buffer-metadata-map <interface>",
+  .function = qos_mark_buffer_metadata_map_show_cli,
+};
+
+/* *INDENT-ON* */
+
+
+static clib_error_t *
+qos_mark_interface_add_del (vnet_main_t * vnm, u32 sw_if_index, u32 is_add)
+{
+  if ((!is_add) && (vec_len (qos_mark_buffer_metadata_map) >= sw_if_index))
+    {
+      /* Delete the buffer-metadata-map on interface delete */
+      void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
+      hash_free (map);
+      qos_mark_buffer_metadata_map[sw_if_index] = 0;
+    }
+
+  return (NULL);
+}
+
+VNET_SW_INTERFACE_ADD_DEL_FUNCTION (qos_mark_interface_add_del);
+
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 
 /*
  * fd.io coding-style-patch-verification: ON
