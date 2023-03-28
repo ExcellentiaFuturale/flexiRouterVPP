@@ -123,8 +123,8 @@ qos_mark_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE /* acl_based_classification */
 	  /* Change to process qos bits if classified-flag is set */ 
          if (PREDICT_TRUE ((qem0) &&
-			   (b0->flags & VNET_BUFFER_F_QOS_DATA_VALID) ||
-			   (b0->flags & VNET_BUFFER_F_IS_CLASSIFIED)))
+			   ((b0->flags & VNET_BUFFER_F_QOS_DATA_VALID) ||
+			   (b0->flags & VNET_BUFFER_F_IS_CLASSIFIED))))
 #else   /* FLEXIWAN_FEATURE - acl_based_classification */
 	  if (PREDICT_TRUE (b0->flags & VNET_BUFFER_F_QOS_DATA_VALID))
 #endif  /* FLEXIWAN_FEATURE - acl_based_classification */
