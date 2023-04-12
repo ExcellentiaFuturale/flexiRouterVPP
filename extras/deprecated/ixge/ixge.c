@@ -2652,7 +2652,7 @@ ixge_device_init (ixge_main_t * xm)
       error = ethernet_register_interface
 	(vnm, ixge_device_class.index, xd->device_index,
 	 /* ethernet address */ addr8,
-	 &xd->vlib_hw_if_index, ixge_flag_change);
+	 &xd->vlib_hw_if_index, ixge_flag_change, 0);
       if (error)
 	clib_error_report (error);
     }

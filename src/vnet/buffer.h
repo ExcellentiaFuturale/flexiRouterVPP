@@ -489,9 +489,11 @@ typedef struct
 #ifdef FLEXIWAN_FEATURE /* acl_based_classification */
   struct
   {
-    /* Identifiers to idenitfy the nodes/level in a QoS / Scheduling system */
-    u16 id_1;
-    u16 id_2;
+    /*
+     * QoS identifiers that can be used to represent additional service
+     * categorization and/or to represent the nodes/level in a QoS scheduler
+     */
+    u32 id;
     union {
 	struct {
 	  u8 importance:2;
@@ -501,10 +503,11 @@ typedef struct
 	u8 bits;
     };
     u8 source;
+    u8 __unused[2];
   } qos;
 
   u8 loop_counter;
-  u8 __unused[5];
+  u8 __unused[3];
 #else  /* FLEXIWAN_FEATURE - acl_based_classification */
   struct
   {

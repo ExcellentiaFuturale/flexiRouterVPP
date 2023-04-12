@@ -21,6 +21,7 @@
  *   - Exported TUN device hardware class to be used in tap-inject plugin.
  *     As a result of tap-inject changes CLI command 'create tap host-if-name pppoe-0 tun'
  *     results in tun0 VPP interface and pppoe-0 and tun0 Linux TUN interfaces.
+ *   - configurable suppression of the interface exposure to the VPPSB (no-vppsb flag)
  */
 
 #define _GNU_SOURCE
@@ -168,6 +169,9 @@ tap_create_if (vlib_main_t * vm, tap_create_if_args_t * args)
   char *host_if_name = 0;
   unsigned int offload = 0;
   int sndbuf = 0;
+#ifdef FLEXIWAN_FEATURE
+  vnet_interface_flexiwan_flags_t flexiwan_flags = 0;
+#endif /* FLEXIWAN_FEATURE */
 
   if (args->id != ~0)
     {
@@ -708,13 +712,18 @@ tap_create_if (vlib_main_t * vm, tap_create_if_args_t * args)
   if (args->host_ip6_prefix_len)
     clib_memcpy (&vif->host_ip6_addr, &args->host_ip6_addr, 16);
 
+#ifdef FLEXIWAN_FEATURE
+  if (args->tap_flags & TAP_FLAG_NO_VPPSB)
+    flexiwan_flags |= VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB;
+#endif /* FLEXIWAN_FEATURE */
+
   if (vif->type != VIRTIO_IF_TYPE_TUN)
     {
       args->error =
 	ethernet_register_interface (vnm, virtio_device_class.index,
 				     vif->dev_instance, vif->mac_addr,
 				     &vif->hw_if_index,
-				     virtio_eth_flag_change);
+				     virtio_eth_flag_change, flexiwan_flags);
       if (args->error)
 	{
 	  args->rv = VNET_API_ERROR_INVALID_REGISTRATION;
@@ -727,7 +736,7 @@ tap_create_if (vlib_main_t * vm, tap_create_if_args_t * args)
       vif->hw_if_index = vnet_register_interface
 	(vnm, virtio_device_class.index,
 	 vif->dev_instance /* device instance */ ,
-	 tun_device_hw_interface_class.index, vif->dev_instance);
+	 tun_device_hw_interface_class.index, vif->dev_instance, flexiwan_flags);
 
     }
   tm->tap_ids = clib_bitmap_set (tm->tap_ids, vif->id, 1);

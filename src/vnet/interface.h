@@ -37,6 +37,12 @@
  *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - configurable suppression of the interface exposure to the VPPSB (no-vppsb flag)
+ */
+
 #ifndef included_vnet_interface_h
 #define included_vnet_interface_h
 
@@ -520,6 +526,23 @@ typedef enum vnet_hw_interface_flags_t_
   VNET_HW_INTERFACE_FLAG_SUPPORTS_MAC_FILTER = (1 << 20),
 } vnet_hw_interface_flags_t;
 
+#ifdef FLEXIWAN_FEATURE
+typedef enum vnet_interface_flexiwan_flags_t_
+{
+  VNET_INTERFACE_FLEXIWAN_FLAG_NONE,
+
+  /* The interface should not be exposed to Linux through the VPPSB
+  */
+  VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB = (1 << 0),
+
+  /* The interface should be exposed to Linux by VPPSB using TUN (and not TAP)
+  */
+  VNET_INTERFACE_FLEXIWAN_FLAG_VPPSB_TUN = (1 << 1),
+
+} vnet_interface_flexiwan_flags_t;
+#endif /* FLEXIWAN_FEATURE */
+
+
 #define VNET_HW_INTERFACE_FLAG_DUPLEX_SHIFT 1
 #define VNET_HW_INTERFACE_FLAG_SPEED_SHIFT  3
 #define VNET_HW_INTERFACE_FLAG_DUPLEX_MASK	\
@@ -536,6 +559,10 @@ typedef struct vnet_hw_interface_t
 
   /* flags */
   vnet_hw_interface_flags_t flags;
+#ifdef FLEXIWAN_FEATURE
+  vnet_interface_flexiwan_flags_t flexiwan_flags;
+#endif /* FLEXIWAN_FEATURE */
+
 
 
   /* link speed in kbps */
@@ -620,6 +647,7 @@ typedef struct vnet_hw_interface_t
   i32 n_trace;
 
   u32 trace_classify_table_index;
+
 } vnet_hw_interface_t;
 
 extern vnet_device_class_t vnet_local_interface_device_class;

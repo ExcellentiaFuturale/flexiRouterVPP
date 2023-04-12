@@ -1487,7 +1487,7 @@ vhost_user_create_ethernet (vnet_main_t * vnm, vlib_main_t * vm,
      vhost_user_device_class.index,
      vui - vum->vhost_user_interfaces /* device instance */ ,
      hwaddr /* ethernet address */ ,
-     &vui->hw_if_index, 0 /* flag change */ );
+     &vui->hw_if_index, 0 /* flag change */, 0 /* flexiwan flags */ );
 
   if (error)
     clib_error_report (error);

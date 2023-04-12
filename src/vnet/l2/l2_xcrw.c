@@ -304,7 +304,7 @@ create_xcrw_interface (vlib_main_t * vm)
   /* can returns error iff phy != 0 */
   (void) ethernet_register_interface
     (vnm, xcrw_device_class.index, instance++, address, &hw_if_index,
-     /* flag change */ 0);
+     /* flag change */ 0, /* flexiwan flags */0);
 
   hi = vnet_get_hw_interface (vnm, hw_if_index);
   sw_if_index = hi->sw_if_index;

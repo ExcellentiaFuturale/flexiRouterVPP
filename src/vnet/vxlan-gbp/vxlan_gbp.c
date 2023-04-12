@@ -486,7 +486,7 @@ int vnet_vxlan_gbp_tunnel_add_del
 
       t->hw_if_index = vnet_register_interface
 	(vnm, vxlan_gbp_device_class.index, dev_instance,
-	 vxlan_gbp_hw_class.index, dev_instance);
+	 vxlan_gbp_hw_class.index, dev_instance, 0);
       vnet_hw_interface_t *hi = vnet_get_hw_interface (vnm, t->hw_if_index);
 
       /* Set vxlan_gbp tunnel output node */

@@ -355,11 +355,11 @@ vnet_gre_tunnel_add (vnet_gre_tunnel_add_del_args_t * a,
       if (t->mode == TUNNEL_MODE_P2P)
 	hw_if_index =
 	  vnet_register_interface (vnm, gre_device_class.index, t_idx,
-				   gre_hw_interface_class.index, t_idx);
+				   gre_hw_interface_class.index, t_idx, 0);
       else
 	hw_if_index =
 	  vnet_register_interface (vnm, gre_device_class.index, t_idx,
-				   mgre_hw_interface_class.index, t_idx);
+				   mgre_hw_interface_class.index, t_idx, 0);
     }
   else
     {
@@ -368,7 +368,7 @@ vnet_gre_tunnel_add (vnet_gre_tunnel_add_del_args_t * a,
 	{ 0xd0, 0x0b, 0xee, 0xd0, (u8) (t_idx >> 8), (u8) t_idx };
       error =
 	ethernet_register_interface (vnm, gre_device_class.index, t_idx,
-				     address, &hw_if_index, 0);
+				     address, &hw_if_index, 0, 0);
       if (error)
 	{
 	  clib_error_report (error);

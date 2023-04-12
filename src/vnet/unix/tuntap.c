@@ -635,7 +635,7 @@ tuntap_config (vlib_main_t * vm, unformat_input_t * input)
       error = ethernet_register_interface
 	(vnm, tuntap_dev_class.index, 0 /* device instance */ ,
 	 tm->ether_dst_mac /* ethernet address */ ,
-	 &tm->hw_if_index, 0 /* flag change */ );
+	 &tm->hw_if_index, 0 /* flag change */ , 0 /* flexiwan flags */);
       if (error)
 	clib_error_report (error);
       tm->sw_if_index = tm->hw_if_index;
@@ -650,7 +650,7 @@ tuntap_config (vlib_main_t * vm, unformat_input_t * input)
 
       tm->hw_if_index = vnet_register_interface
 	(vnm, tuntap_dev_class.index, 0 /* device instance */ ,
-	 tuntap_interface_class.index, 0);
+	 tuntap_interface_class.index, 0, 0);
       hi = vnet_get_hw_interface (vnm, tm->hw_if_index);
       tm->sw_if_index = hi->sw_if_index;
 

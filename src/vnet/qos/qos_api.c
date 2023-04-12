@@ -15,6 +15,16 @@
  *------------------------------------------------------------------
  */
 
+/*
+ * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - qos_mark_buffer_metadata_map : It adds a map that can used to update
+ *  packet's QoS metadata values. The map uses the packet's QoS ID as the
+ *  key and the result shall be the value to be marked. One use case
+ *  for use of this support is, select QoS scheduler hierarchy based on the
+ *  packet's QoS ID value.
+ */
+
+
 #include <vnet/vnet.h>
 #include <vlibmemory/api.h>
 #include <vnet/api_errno.h>
@@ -43,6 +53,23 @@
 #include <vlibapi/api_helper_macros.h>
 
 
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+
+#define foreach_qos_api_msg                                             \
+  _(QOS_RECORD_ENABLE_DISABLE, qos_record_enable_disable)               \
+  _(QOS_RECORD_DUMP, qos_record_dump)                                   \
+  _(QOS_STORE_ENABLE_DISABLE, qos_store_enable_disable)                 \
+  _(QOS_STORE_DUMP, qos_store_dump)                                     \
+  _(QOS_EGRESS_MAP_DELETE, qos_egress_map_delete)                       \
+  _(QOS_EGRESS_MAP_UPDATE, qos_egress_map_update)                       \
+  _(QOS_EGRESS_MAP_DUMP, qos_egress_map_dump)                           \
+  _(QOS_MARK_ENABLE_DISABLE, qos_mark_enable_disable)                   \
+  _(QOS_MARK_DUMP, qos_mark_dump)                                       \
+  _(QOS_MARK_BUFFER_METADATA_MAP, qos_mark_buffer_metadata_map)         \
+  _(QOS_MARK_BUFFER_METADATA_MAP_DELETE, qos_mark_buffer_metadata_map_delete)
+
+#else /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
+
 #define foreach_qos_api_msg                                             \
   _(QOS_RECORD_ENABLE_DISABLE, qos_record_enable_disable)               \
   _(QOS_RECORD_DUMP, qos_record_dump)                                   \
@@ -53,6 +80,8 @@
   _(QOS_EGRESS_MAP_DUMP, qos_egress_map_dump)                           \
   _(QOS_MARK_ENABLE_DISABLE, qos_mark_enable_disable)                   \
   _(QOS_MARK_DUMP, qos_mark_dump)
+
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 
 static int
 qos_source_decode (vl_api_qos_source_t v, qos_source_t * q)
@@ -351,6 +380,70 @@ vl_api_qos_mark_dump_t_handler (vl_api_qos_mark_dump_t * mp)
   };
   qos_mark_walk (send_qos_mark_details, &ctx);
 }
+
+#ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
+
+extern uword *qos_mark_buffer_metadata_map;
+
+void
+vl_api_qos_mark_buffer_metadata_map_t_handler
+(vl_api_qos_mark_buffer_metadata_map_t * mp)
+{
+  vl_api_qos_mark_buffer_metadata_map_reply_t *rmp;
+  i32 rv = 0;
+  VALIDATE_SW_IF_INDEX (mp);
+  u32 count = ntohl(mp->count);
+  u32 sw_if_index = ntohl (mp->sw_if_index);
+  vec_validate_init_empty (qos_mark_buffer_metadata_map, sw_if_index, 0);
+
+  if (!qos_mark_buffer_metadata_map[sw_if_index])
+    {
+      /* create new map for the sw_if_index */
+      qos_mark_buffer_metadata_map[sw_if_index] =
+        (uword) hash_create (0, sizeof (uword));
+    }
+
+  void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
+  /* add key-value pairs to the map */
+  for (i32 i = 0; i < count; i++)
+    hash_set (map, ntohl (mp->key_value_pairs[i].key),
+              ntohl (mp->key_value_pairs[i].value));
+
+  BAD_SW_IF_INDEX_LABEL;
+  REPLY_MACRO (VL_API_QOS_MARK_BUFFER_METADATA_MAP_REPLY);
+}
+
+void
+vl_api_qos_mark_buffer_metadata_map_delete_t_handler
+(vl_api_qos_mark_buffer_metadata_map_delete_t * mp)
+{
+  vl_api_qos_mark_buffer_metadata_map_delete_reply_t *rmp;
+  i32 rv = 0;
+  VALIDATE_SW_IF_INDEX (mp);
+  u32 count = ntohl(mp->count);
+  u32 sw_if_index = ntohl (mp->sw_if_index);
+
+  if ((vec_len (qos_mark_buffer_metadata_map) >= sw_if_index) &&
+      (qos_mark_buffer_metadata_map[sw_if_index]))
+    {
+      void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
+      if (!count)
+        {
+          /* On empty count - delete the map */
+          hash_free (map);
+          qos_mark_buffer_metadata_map[sw_if_index] = 0;
+        }
+      else
+        {
+          /* delete key-value pairs to the map */
+          for (i32 i = 0; i < count; i++)
+            hash_unset (map, ntohl (mp->keys[i]));
+        }
+    }
+  BAD_SW_IF_INDEX_LABEL;
+  REPLY_MACRO (VL_API_QOS_MARK_BUFFER_METADATA_MAP_DELETE_REPLY);
+}
+#endif /* FLEXIWAN_FEATURE - qos_mark_buffer_metadata_map */
 
 #define vl_msg_name_crc_list
 #include <vnet/qos/qos.api.h>

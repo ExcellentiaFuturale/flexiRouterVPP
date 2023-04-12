@@ -290,7 +290,7 @@ mrvl_pp2_create_if (mrvl_pp2_create_if_args_t * args)
 					     ppif->dev_instance,
 					     mac_addr,
 					     &ppif->hw_if_index,
-					     mrvl_pp2_eth_flag_change);
+					     mrvl_pp2_eth_flag_change, 0);
   if (args->error)
     {
       args->rv = VNET_API_ERROR_INVALID_REGISTRATION;

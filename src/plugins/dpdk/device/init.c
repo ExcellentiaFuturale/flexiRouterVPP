@@ -826,9 +826,21 @@ dpdk_lib_init (dpdk_main_t * dm)
              devconf->hqos.hqos_thread = cpu;
            }
 
-         dpdk_device_config_hqos_default (&devconf->hqos);
-         clib_error_t *rv;
-         rv = dpdk_port_setup_hqos (xd, &devconf->hqos);
+         /*
+          * If no device specific limit for subports and pipes are provided,
+          * Use the default conf's subport and pipe limit
+          */
+         if ((devconf->hqos.max_subports == 0) && (default_devconf))
+           devconf->hqos.max_subports = default_devconf->hqos.max_subports;
+         if ((devconf->hqos.max_pipes == 0) && (default_devconf))
+           devconf->hqos.max_pipes = default_devconf->hqos.max_pipes;
+         dpdk_hqos_init_default_port_params
+                 (&devconf->hqos.port_params, devconf->hqos.max_subports,
+                  devconf->hqos.max_pipes);
+         devconf->hqos.swq_size = HQOS_SWQ_SIZE;
+         devconf->hqos.burst_enq = HQOS_BURST_ENQ;
+         devconf->hqos.burst_deq = HQOS_BURST_DEQ;
+         clib_error_t * rv = dpdk_port_setup_hqos (xd, &devconf->hqos);
          if (rv)
            return rv;
 
@@ -846,7 +858,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	{
 	  xd->hw_if_index = vnet_register_interface
 	    (dm->vnet_main, dpdk_device_class.index, xd->device_index,
-	     tun_device_hw_interface_class.index, 0);
+	     tun_device_hw_interface_class.index, 0, 0);
 	  hi = vnet_get_hw_interface (dm->vnet_main, xd->hw_if_index);
 	  xd->sw_if_index = hi->sw_if_index;
 
@@ -861,7 +873,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	  error = ethernet_register_interface
 	    (dm->vnet_main, dpdk_device_class.index, xd->device_index,
 	     /* ethernet address */ addr,
-	     &xd->hw_if_index, dpdk_flag_change);
+	     &xd->hw_if_index, dpdk_flag_change, 0);
 
 	  if (error)
 	    return error;
@@ -870,7 +882,7 @@ dpdk_lib_init (dpdk_main_t * dm)
       error = ethernet_register_interface
 	(dm->vnet_main, dpdk_device_class.index, xd->device_index,
 	 /* ethernet address */ addr,
-	 &xd->hw_if_index, dpdk_flag_change);
+	 &xd->hw_if_index, dpdk_flag_change, 0);
       if (error)
 	return error;
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
@@ -1774,7 +1786,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 		  {                                   \
 		    vec_add1 (conf->eal_init_args, s);\
 		  }                                   \
-		else if (unformat (input, "%s", s))   \
+		else if (unformat (input, "%s", &s))   \
 		  {                                   \
 		    vec_add1 (s, 0);		      \
 		    if (strstr((char*)s, "af_packet"))\
@@ -1782,7 +1794,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 		    vec_add1 (conf->eal_init_args, s);\
 		  }                                   \
 	      }                                       \
-            else if (unformat (input, "%s", s))       \
+            else if (unformat (input, "%s", &s))       \
 	      {                                       \
 		    vec_add1 (s, 0);		      \
 		    vec_add1 (conf->eal_init_args, s);\

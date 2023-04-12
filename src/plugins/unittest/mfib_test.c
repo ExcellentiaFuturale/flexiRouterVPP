@@ -130,7 +130,8 @@ mfib_test_mk_intf (u32 ninterfaces)
                                             i /* instance */,
                                             hw_address,
                                             &tm->hw_if_indicies[i],
-                                            /* flag change */ 0);
+                                            /* flag change */ 0,
+                                            /* flexiwan flags */ 0);
 
         MFIB_TEST((NULL == error), "ADD interface %d", i);
 

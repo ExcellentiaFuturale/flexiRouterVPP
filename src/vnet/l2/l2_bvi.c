@@ -181,7 +181,7 @@ l2_bvi_create (u32 user_instance,
   error = ethernet_register_interface (vnm,
 				       bvi_device_class.index,
 				       instance, mac.bytes, &hw_if_index,
-				       /* flag change */ 0);
+				       /* flag change */ 0, /* flexiwan flags */ 0);
 
   if (error)
     {
