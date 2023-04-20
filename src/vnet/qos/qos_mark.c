@@ -344,7 +344,7 @@ qos_mark_buffer_metadata_map_cli (vlib_main_t * vm, unformat_input_t * input,
 
   if (delete)
     {
-      if (vec_len (qos_mark_buffer_metadata_map) >= sw_if_index)
+      if (vec_len (qos_mark_buffer_metadata_map) > sw_if_index)
         {
           /* delete the entry using the key input */
           void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
@@ -408,7 +408,7 @@ qos_mark_buffer_metadata_map_show_cli (vlib_main_t * vm,
   if (sw_if_index == ~0)
     return clib_error_return (0, "valid interface must be specified");
 
-  if (vec_len (qos_mark_buffer_metadata_map) >= sw_if_index)
+  if (vec_len (qos_mark_buffer_metadata_map) > sw_if_index)
     {
       void *map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
       if (map)
@@ -446,7 +446,7 @@ VLIB_CLI_COMMAND (qos_mark_buffer_metadata_map_show_command, static) = {
 static clib_error_t *
 qos_mark_interface_add_del (vnet_main_t * vnm, u32 sw_if_index, u32 is_add)
 {
-  if ((!is_add) && (vec_len (qos_mark_buffer_metadata_map) >= sw_if_index))
+  if ((!is_add) && (vec_len (qos_mark_buffer_metadata_map) > sw_if_index))
     {
       /* Delete the buffer-metadata-map on interface delete */
       void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];

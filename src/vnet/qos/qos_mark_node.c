@@ -103,7 +103,7 @@ qos_mark_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE /* qos_mark_buffer_metadata_map */
           uword * map = NULL; 
           if (PREDICT_TRUE
-              (vec_len (qos_mark_buffer_metadata_map) >= sw_if_index0) &&
+              (vec_len (qos_mark_buffer_metadata_map) > sw_if_index0) &&
               (qos_mark_buffer_metadata_map[sw_if_index0]))
             {
               /* Lookup and update the buffer metadata qos ID value */
