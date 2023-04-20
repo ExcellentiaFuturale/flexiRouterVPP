@@ -423,7 +423,7 @@ vl_api_qos_mark_buffer_metadata_map_delete_t_handler
   u32 count = ntohl(mp->count);
   u32 sw_if_index = ntohl (mp->sw_if_index);
 
-  if ((vec_len (qos_mark_buffer_metadata_map) >= sw_if_index) &&
+  if ((vec_len (qos_mark_buffer_metadata_map) > sw_if_index) &&
       (qos_mark_buffer_metadata_map[sw_if_index]))
     {
       void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
