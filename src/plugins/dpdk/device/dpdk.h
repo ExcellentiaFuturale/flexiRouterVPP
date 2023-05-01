@@ -442,10 +442,6 @@ typedef struct
 #undef _
     clib_bitmap_t * workers;
 
-#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
-  /* flag to indicate if the device need to take the default device config */
-  u8 use_default;
-#endif   /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 #ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
   u8 hqos_enabled;
   dpdk_device_config_hqos_t hqos;

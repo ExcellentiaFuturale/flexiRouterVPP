@@ -422,10 +422,6 @@ dpdk_lib_init (dpdk_main_t * dm)
 			   dev_info.driver_name);
 	  continue;
 	}
-      if (devconf->use_default && default_devconf)
-        {
-	  memcpy (devconf, default_devconf, sizeof (dpdk_device_config_t));
-	}
       /* Create vnet interface */
       vec_add2_aligned (dm->devices, xd, 1, CLIB_CACHE_LINE_BYTES);
       xd->nb_rx_desc = DPDK_NB_RX_DESC_DEFAULT;
@@ -1382,11 +1378,7 @@ dpdk_device_config (dpdk_config_main_t * conf, vlib_pci_addr_t pci_addr,
     }
   if (!input)
     {
-      /*
-       * No device specific configuration provided. Set flag to make use of
-       * default device config
-       */
-      devconf->use_default = 1;
+      // No device specific configuration provided.
       return 0;
     }
 #else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
@@ -1962,6 +1954,15 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 		default_devconf->vlan_strip_offload > 0)
 		devconf->vlan_strip_offload =
 			default_devconf->vlan_strip_offload;
+
+        if (default_devconf && (!devconf->hqos_enabled) &&
+            (default_devconf->hqos_enabled))
+          memcpy (&devconf->hqos, &default_devconf->hqos,
+                  sizeof(dpdk_device_config_hqos_t));
+
+        /* copy hqos enabled from default device */
+        _(hqos_enabled)
+
 #else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 	if (devconf->vlan_strip_offload == 0 &&
 		conf->default_devconf.vlan_strip_offload > 0)
