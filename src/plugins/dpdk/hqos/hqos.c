@@ -541,11 +541,11 @@ dpdk_hqos_get_pipe_profile (dpdk_device_config_hqos_t * hqos,
       error = clib_error_return (0, "subport not found");
       return error;
     }
-  if (profile_id >= hqos->port_params.n_max_subport_profiles)
+  if (profile_id >= hqos->port_params.n_pipes_per_subport)
     {
       error = clib_error_return
         (0, "profile id higher than max - allowed range (%u to %u)", 0,
-         (hqos->port_params.n_max_subport_profiles-1));
+         (hqos->port_params.n_pipes_per_subport - 1));
       return error;
     }
 

@@ -349,6 +349,8 @@ qos_mark_buffer_metadata_map_cli (vlib_main_t * vm, unformat_input_t * input,
           /* delete the entry using the key input */
           void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
           hash_unset (map, key);
+          //update back context - passed map value can change during hash_* ops
+          qos_mark_buffer_metadata_map[sw_if_index] = (uword) map;
         }
     }
   else
@@ -363,6 +365,8 @@ qos_mark_buffer_metadata_map_cli (vlib_main_t * vm, unformat_input_t * input,
       /* add key value pair to the map */
       void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
       hash_set (map, key, value);
+      //update back context - passed map value can change during hash_* ops
+      qos_mark_buffer_metadata_map[sw_if_index] = (uword) map;
     }
 
   return (NULL);
