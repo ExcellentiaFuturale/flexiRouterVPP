@@ -38,45 +38,12 @@ autoreply define classifier_acls_enable_disable {
     vl_api_interface_index_t sw_if_index;
 };
 
-/** \brief Set the vector of input/output ACLs checked for an interface
+/** \brief Set the ACLs identified using the given acl_list_id on the interface
     @param client_index - opaque cookie to identify the sender
     @param context - sender context, to match reply w/ request
+    @param is_add - Add/Delete the acl_list_id on the interface
     @param sw_if_index - the interface to alter the list of ACLs on
-    @param count - total number of ACL indices in the vector
-    @param acls - vector of ACL indices
-*/
-
-autoreply define classifier_acls_set_interface_acl_list
-{
-  u32 client_index;
-  u32 context;
-  vl_api_interface_index_t sw_if_index;
-  u8 count;
-  u32 acls[count];
-  option vat_help = "<intfc> | sw_if_index <if-idx> [acl-idx list]";
-};
-
-/** \brief Setup the ACLs that defines the classification rules
-    @param client_index - opaque cookie to identify the sender
-    @param context - sender context, to match reply w/ request
-    @param count - total number of ACL indices in the vector
-    @param acls - vector of ACL indices
-*/
-
-autoreply define classifier_acls_set_acl_list
-{
-  u32 client_index;
-  u32 context;
-  u8 count;
-  u32 acls[count];
-  option vat_help = "<intfc> | [acl-idx list]";
-};
-
-/** \brief Setup the classification acls on the given interface
-    @param client_index - opaque cookie to identify the sender
-    @param context - sender context, to match reply w/ request
-    @param is_add - flag to indicate add or remove the interface
-    @param sw_if_index - the interface on which ACLs are to be applied
+    @param acl_list_id - Unique id to represent a list of ACLs
 */
 
 autoreply define classifier_acls_set_interface
@@ -85,6 +52,23 @@ autoreply define classifier_acls_set_interface
   u32 context;
   bool is_add;
   vl_api_interface_index_t sw_if_index;
-  option vat_help = "<intfc> | [sw-if-index list]";
+  u32 acl_list_id;
+};
+
+/** \brief Setup the ACLs that defines the classification rules
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param acl_list_id - An unique id that represents a list of ACLs
+    @param count - total number of ACL indices in the vector
+    @param acls - vector of ACL indices
+*/
+
+autoreply define classifier_acls_set_acls
+{
+  u32 client_index;
+  u32 context;
+  u32 acl_list_id;
+  u32 count;
+  u32 acls[count];
 };
 
