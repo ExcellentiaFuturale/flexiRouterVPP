@@ -22,21 +22,20 @@
 #include <plugins/acl/exported_types.h>
 #include <plugins/acl/public_inlines.h>
 
+#define CLASSIFIER_MAX_ACL_SETS 4
+
 typedef struct {
+   /* ACL plugin context's lc_index indexed with acl-list-id */
+    u32 acl_lc_index_by_acl_list_id[CLASSIFIER_MAX_ACL_SETS];
+
+    /* Map of sw_if_index to acl-list-id. Indexed with sw_if_index */
+    u32 *acl_list_id_by_sw_if_index;
+
     /* ACL plugin struct of exported functions */
     acl_plugin_methods_t acl_plugin;
 
     /* Classifer ACLs module user id */
     u32 acl_user_id;
-
-    /* Per interface ACL lookup context IDs. Indexed by sw_if_index */
-    u32 *acl_lc_index_by_sw_if_index;
-
-    /* Vector of classifier acl indexes */
-    u32 *acls;
-
-    /* Vector of interface added for classification */
-    u32 *intfs_indexed_by_sw_if_index;
 
     /* API message ID base */
     u16 msg_id_base;
