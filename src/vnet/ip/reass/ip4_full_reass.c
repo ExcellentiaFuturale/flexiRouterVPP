@@ -20,6 +20,17 @@
  * This file contains the source code for IPv4 full reassembly.
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *
+ *   - fix_nat_drop_for_re_entered_packets: In certain packet flow like
+ *     reassembled packets, the packet is looped back into the ip input node.
+ *     In such cases, the already de-NATed packet gets dropped in NAT due to
+ *     lookup failure. The fix validates re_entry packets and prevents nat drop
+ */
+
+
 #include <vppinfra/vec.h>
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
@@ -749,6 +760,13 @@ ip4_full_reass_finalize (vlib_main_t * vm, vlib_node_runtime_t * node,
   *bi0 = reass->first_bi;
   if (!is_custom)
     {
+#ifdef FLEXIWAN_FIX /* fix_nat_drop_for_re_entered_packets */
+      /*
+       * Mark the packet as re-entering ip input. The flag can be used by NAT
+       * feature to make required actions for re-entered packet
+       */
+      first_b->flags |= VNET_BUFFER_F_CHECK_NAT_RE_ENTRY;
+#endif /* FLEXIWAN_FIX - fix_nat_drop_for_re_entered_packets */
       *next0 = IP4_FULL_REASS_NEXT_INPUT;
     }
   else
@@ -1139,6 +1157,14 @@ ip4_full_reass_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	      // this is a whole packet - no fragmentation
 	      if (CUSTOM != type)
 		{
+#ifdef FLEXIWAN_FIX /* fix_nat_drop_for_re_entered_packets */
+                  /*
+                   * Mark the packet as re-entering ip input. The flag can be
+                   * used by NAT feature to make required actions for
+                   * re-entered packet
+                   */
+                  b0->flags |= VNET_BUFFER_F_CHECK_NAT_RE_ENTRY;
+#endif /* FLEXIWAN_FIX - fix_nat_drop_for_re_entered_packets */
 		  next0 = IP4_FULL_REASS_NEXT_INPUT;
 		}
 	      else
