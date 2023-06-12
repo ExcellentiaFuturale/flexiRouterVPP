@@ -15,6 +15,17 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *
+ *   - configurable_anti_replay_window_len : Add support to make the
+ *     anti-replay check window configurable. A higher anti replay window
+ *     length is needed in systems where packet reordering is expected due to
+ *     features like QoS. A low window length can lead to the wrong dropping of
+ *     out-of-order packets that are outside the window as replayed packets.
+ */
+
 #include <vnet/vnet.h>
 #include <vnet/api_errno.h>
 #include <vnet/ip/ip.h>
@@ -296,9 +307,16 @@ format_ipsec_sa (u8 * s, va_list * args)
   s = format (s, "\n   thread-indices [encrypt:%d decrypt:%d]",
 	      sa->encrypt_thread_index, sa->decrypt_thread_index);
   s = format (s, "\n   seq %u seq-hi %u", sa->seq, sa->seq_hi);
+#ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
+  s = format (s, "\n   last-seq %u last-seq-hi %u",
+	      sa->last_seq, sa->last_seq_hi);
+  s = format (s, "\n   anti-replay-window %U",
+	      format_bitmap_hex, sa->replay_window_bmp);
+#else /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
   s = format (s, "\n   last-seq %u last-seq-hi %u window %U",
 	      sa->last_seq, sa->last_seq_hi,
 	      format_ipsec_replay_window, sa->replay_window);
+#endif /* FLEXIWAN_FEATURE - configurable_anti_replay_window_len */
   s = format (s, "\n   crypto alg %U",
 	      format_ipsec_crypto_alg, sa->crypto_alg);
   if (sa->crypto_alg && (flags & IPSEC_FORMAT_INSECURE))

@@ -15,6 +15,12 @@
  *------------------------------------------------------------------
  */
 
+/*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - configurable suppression of the interface exposure to the VPPSB (no-vppsb flag)
+ */
+
 #ifndef _VNET_DEVICES_VIRTIO_TAP_H_
 #define _VNET_DEVICES_VIRTIO_TAP_H_
 
@@ -30,7 +36,8 @@
   _ (TUN, 4)                 \
   _ (GRO_COALESCE, 5)        \
   _ (PACKED, 6)              \
-  _ (IN_ORDER, 7)
+  _ (IN_ORDER, 7)            \
+  _ (NO_VPPSB, 8)
 
 typedef enum
 {

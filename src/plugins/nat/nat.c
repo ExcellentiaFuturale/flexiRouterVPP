@@ -23,6 +23,9 @@
  *     3.Prevent presence of dynamic translation from stopping the addition of
  *       nat44 static mapping in endpoint-dependent mode
  *
+ *   - assign_worker_for_fragmented_packets : Make the worker thread selection
+ *   code to use port information from fragmentation-metada
+ *
  */
 
 /*
@@ -385,7 +388,7 @@ nat44_ei_user_del (ip4_address_t * addr, u32 fib_index)
   user_key.fib_index = fib_index;
   kv.key = user_key.as_u64;
 
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     {
       /* *INDENT-OFF* */
       vec_foreach (tsm, sm->per_thread_data)
@@ -876,11 +879,11 @@ get_thread_idx_by_port (u16 e_port)
 {
   snat_main_t *sm = &snat_main;
   u32 thread_idx = sm->num_workers;
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     {
       thread_idx =
-	sm->first_worker_index +
-	sm->workers[(e_port - 1024) / sm->port_per_thread];
+       sm->first_worker_index +
+       sm->workers[(e_port - 1024) / sm->port_per_thread];
     }
   return thread_idx;
 }
@@ -1286,7 +1289,7 @@ snat_add_static_mapping (ip4_address_t l_addr, ip4_address_t e_addr,
 	  m->proto = proto;
 	}
 
-      if (sm->num_workers > 1)
+      if (sm->num_workers > 0)
 	{
 	  ip4_header_t ip = {
 	    .src_address = m->local_addr,
@@ -1424,7 +1427,7 @@ snat_add_static_mapping (ip4_address_t l_addr, ip4_address_t e_addr,
 	    }
 	}
 
-      if (sm->num_workers > 1)
+      if (sm->num_workers > 0)
 	tsm = vec_elt_at_index (sm->per_thread_data, m->workers[0]);
       else
 	tsm = vec_elt_at_index (sm->per_thread_data, sm->num_workers);
@@ -1618,7 +1621,7 @@ nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
 	    (locals[i - 1].prefix + locals[i].probability);
 	  pool_get (m->locals, local);
 	  *local = locals[i];
-	  if (sm->num_workers > 1)
+	  if (sm->num_workers > 0)
 	    {
 	      ip4_header_t ip = {
 		.src_address = locals[i].addr,
@@ -1631,7 +1634,7 @@ nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
 	}
 
       /* Assign workers */
-      if (sm->num_workers > 1)
+      if (sm->num_workers > 0)
 	{
           /* *INDENT-OFF* */
           clib_bitmap_foreach (i, bitmap)
@@ -1701,7 +1704,7 @@ init_nat_k(&              kv, local->addr, local->port, local->fib_index, m->pro
                 }
             }
 
-          if (sm->num_workers > 1)
+          if (sm->num_workers > 0)
             {
               ip4_header_t ip = {
                 .src_address = local->addr,
@@ -1820,7 +1823,7 @@ nat44_lb_static_mapping_add_del_local (ip4_address_t e_addr, u16 e_port,
 	    nat_elog_err ("static_mapping_by_local key del failed");
 	}
 
-      if (sm->num_workers > 1)
+      if (sm->num_workers > 0)
 	{
 	  ip4_header_t ip = {
 	    .src_address = local->addr,
@@ -1856,7 +1859,7 @@ nat44_lb_static_mapping_add_del_local (ip4_address_t e_addr, u16 e_port,
   pool_foreach (local, m->locals)
    {
     vec_add1 (locals, local - m->locals);
-    if (sm->num_workers > 1)
+    if (sm->num_workers > 0)
       {
         ip4_header_t ip;
         ip.src_address.as_u32 = local->addr.as_u32,
@@ -1879,7 +1882,7 @@ nat44_lb_static_mapping_add_del_local (ip4_address_t e_addr, u16 e_port,
     }
 
   /* Assign workers */
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     {
       /* *INDENT-OFF* */
       clib_bitmap_foreach (i, bitmap)  { vec_add1(m->workers, i); }
@@ -2205,7 +2208,7 @@ snat_interface_add_del (u32 sw_if_index, u8 is_inside, int is_del)
     feature_name = is_inside ? "nat44-in2out-fast" : "nat44-out2in-fast";
   else
     {
-      if (sm->num_workers > 1)
+      if (sm->num_workers > 0)
 	feature_name =
 	  is_inside ? "nat44-in2out-worker-handoff" :
 	  "nat44-out2in-worker-handoff";
@@ -2217,11 +2220,11 @@ snat_interface_add_del (u32 sw_if_index, u8 is_inside, int is_del)
 	feature_name = is_inside ? "nat44-in2out" : "nat44-out2in";
     }
 
-  if (sm->fq_in2out_index == ~0 && sm->num_workers > 1)
+  if (sm->fq_in2out_index == ~0 && sm->num_workers > 0)
     sm->fq_in2out_index =
       vlib_frame_queue_main_init (sm->in2out_node_index, NAT_FQ_NELTS);
 
-  if (sm->fq_out2in_index == ~0 && sm->num_workers > 1)
+  if (sm->fq_out2in_index == ~0 && sm->num_workers > 0)
     sm->fq_out2in_index =
       vlib_frame_queue_main_init (sm->out2in_node_index, NAT_FQ_NELTS);
 
@@ -2270,7 +2273,7 @@ feature_set:
                 else
                   i->flags &= ~NAT_INTERFACE_FLAG_IS_OUTSIDE;
 
-                if (sm->num_workers > 1)
+                if (sm->num_workers > 0)
                   {
                     del_feature_name = "nat44-handoff-classify";
                     feature_name = !is_inside ?  "nat44-in2out-worker-handoff" :
@@ -2334,7 +2337,7 @@ feature_set:
                 (nat_interface_is_outside(i) && !is_inside))
               return 0;
 
-            if (sm->num_workers > 1)
+            if (sm->num_workers > 0)
               {
                 del_feature_name = !is_inside ?  "nat44-in2out-worker-handoff" :
                                                  "nat44-out2in-worker-handoff";
@@ -2535,7 +2538,7 @@ feature_set:
       goto fq;
     }
 
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     {
       int rv = ip4_sv_reass_enable_disable_with_refcnt (sw_if_index, !is_del);
       if (rv)
@@ -2588,11 +2591,11 @@ feature_set:
     }
 
 fq:
-  if (sm->fq_in2out_output_index == ~0 && sm->num_workers > 1)
+  if (sm->fq_in2out_output_index == ~0 && sm->num_workers > 0)
     sm->fq_in2out_output_index =
       vlib_frame_queue_main_init (sm->in2out_output_node_index, 0);
 
-  if (sm->fq_out2in_index == ~0 && sm->num_workers > 1)
+  if (sm->fq_out2in_index == ~0 && sm->num_workers > 0)
     sm->fq_out2in_index =
       vlib_frame_queue_main_init (sm->out2in_node_index, 0);
 
@@ -2653,7 +2656,7 @@ snat_set_workers (uword * bitmap)
   snat_main_t *sm = &snat_main;
   int i, j = 0;
 
-  if (sm->num_workers < 2)
+  if (sm->num_workers < 1)
     return VNET_API_ERROR_FEATURE_DISABLED;
 
   if (clib_bitmap_last_set (bitmap) >= sm->num_workers)
@@ -3017,7 +3020,7 @@ nat_init (vlib_main_t * vm)
   vec_validate (sm->per_thread_data, num_threads);
 
   /* Use all available workers by default */
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     {
 
       for (i = 0; i < sm->num_workers; i++)
@@ -3474,7 +3477,7 @@ snat_static_mapping_match (snat_main_t * sm,
 	      goto end;
 	    }
 	  // pick locals matching this worker
-	  if (PREDICT_FALSE (sm->num_workers > 1))
+	  if (PREDICT_FALSE (sm->num_workers > 0))
 	    {
 	      u32 thread_index = vlib_get_thread_index ();
               /* *INDENT-OFF* */
@@ -4050,10 +4053,17 @@ nat44_ed_get_worker_out2in_cb (vlib_buffer_t * b, ip4_header_t * ip,
 
   if (PREDICT_TRUE (proto == NAT_PROTOCOL_UDP || proto == NAT_PROTOCOL_TCP))
     {
+#ifdef FLEXIWAN_FIX /* assign_worker_for_fragmented_packets */
+      init_ed_k (&kv16, ip->dst_address,
+                 vnet_buffer (b)->ip.reass.l4_dst_port, ip->src_address,
+                 vnet_buffer (b)->ip.reass.l4_src_port, rx_fib_index,
+                 ip->protocol);
+#else /* FLEXIWAN_FIX - assign_worker_for_fragmented_packets */
       udp = ip4_next_header (ip);
 
       init_ed_k (&kv16, ip->dst_address, udp->dst_port, ip->src_address,
 		 udp->src_port, rx_fib_index, ip->protocol);
+#endif /* FLEXIWAN_FIX - assign_worker_for_fragmented_packets */
 
       if (PREDICT_TRUE (!clib_bihash_search_16_8 (&sm->out2in_ed,
 						  &kv16, &value16)))
@@ -4117,7 +4127,11 @@ nat44_ed_get_worker_out2in_cb (vlib_buffer_t * b, ip4_header_t * ip,
     }
 
   udp = ip4_next_header (ip);
+#ifdef FLEXIWAN_FIX /* assign_worker_for_fragmented_packets */
+  port = vnet_buffer (b)->ip.reass.l4_dst_port;
+#else /* FLEXIWAN_FIX - assign_worker_for_fragmented_packets */
   port = udp->dst_port;
+#endif /* FLEXIWAN_FIX - assign_worker_for_fragmented_packets */
 
   if (PREDICT_FALSE (ip->protocol == IP_PROTOCOL_ICMP))
     {
@@ -4288,7 +4302,7 @@ nat_ha_sdel_cb (ip4_address_t * out_addr, u16 out_port,
   snat_session_t *s;
   snat_main_per_thread_data_t *tsm;
 
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     thread_index =
       sm->first_worker_index +
       (sm->workers[(clib_net_to_host_u16 (out_port) -
@@ -4435,7 +4449,7 @@ nat_ha_sdel_ed_cb (ip4_address_t * out_addr, u16 out_port,
   snat_session_t *s;
   snat_main_per_thread_data_t *tsm;
 
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     thread_index =
       sm->first_worker_index +
       (sm->workers[(clib_net_to_host_u16 (out_port) -
@@ -4942,7 +4956,7 @@ nat44_del_session (snat_main_t * sm, ip4_address_t * addr, u16 port,
     return VNET_API_ERROR_UNSUPPORTED;
 
   ip.dst_address.as_u32 = ip.src_address.as_u32 = addr->as_u32;
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     tsm =
       vec_elt_at_index (sm->per_thread_data,
 			sm->worker_in2out_cb (&ip, fib_index, 0));
@@ -4981,7 +4995,7 @@ nat44_del_ed_session (snat_main_t * sm, ip4_address_t * addr, u16 port,
     return VNET_API_ERROR_FEATURE_DISABLED;
 
   ip.dst_address.as_u32 = ip.src_address.as_u32 = addr->as_u32;
-  if (sm->num_workers > 1)
+  if (sm->num_workers > 0)
     tsm =
       vec_elt_at_index (sm->per_thread_data,
 			sm->worker_in2out_cb (&ip, fib_index, 0));

@@ -74,56 +74,15 @@ static int api_classifier_acls_enable_disable (vat_main_t * vam)
 }
 
 
-static int api_classifier_acls_set_interface_acl_list (vat_main_t * vam)
+/* NOT YET IMPLEMENTED */
+static int api_classifier_acls_set_acls (vat_main_t * vam)
 {
-    unformat_input_t * i = vam->input;
-    vl_api_classifier_acls_set_interface_acl_list_t * mp;
-    u32 sw_if_index = ~0;
-    u32 *acls = 0;
-    u32 acl_index;
-    int ret;
+  return 0;
+}
 
-    /*
-     * classifier_acls_set_interface_acl_list sw_if_index <if-idx> acls <list>
-     * Ex:classifier_acls_set_interface_acl_list sw_if_index 2 acls 12 5 22
-     */
-    while (unformat_check_input (i) != UNFORMAT_END_OF_INPUT) {
-        if (unformat (i, "sw_if_index %d", &sw_if_index))
-	  ret = 1;
-        else if (unformat (i, "acls"))
-            ret |= (1 << 1);
-        else if (unformat (i, "%d", &acl_index))
-          {
-            if (ret == 3)
-              vec_add1(acls, htonl(acl_index));
-          }
-        else
-            break;
-    }
-
-    if (sw_if_index == ~0) {
-        errmsg ("missing sw_if_index\n");
-        return -99;
-    }
-    if (acls == 0) {
-        errmsg ("missing acls input \n");
-        return -99;
-    }
-
-    /* Construct the API message */
-    M2(CLASSIFIER_ACLS_SET_INTERFACE_ACL_LIST, mp,
-       sizeof(u32) * (vec_len(acls)));
-    mp->sw_if_index = ntohl(sw_if_index);
-    mp->count = vec_len(acls);
-    if (vec_len(acls) > 0)
-      clib_memcpy(mp->acls, acls, vec_len(acls)*sizeof(u32));
-
-    /* send it... */
-    S(mp);
-
-    /* Wait for a reply... */
-    W (ret);
-    return ret;
+static int api_classifier_acls_set_interface (vat_main_t * vam)
+{
+  return 0;
 }
 
 /*

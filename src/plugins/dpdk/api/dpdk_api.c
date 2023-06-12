@@ -439,43 +439,18 @@ static void
          goto done;
        }
     }
-  // Detect the set of worker threads
-  vlib_thread_main_t *tm = vlib_get_thread_main ();
-  uword *p = hash_get_mem (tm->thread_registrations_by_name, "workers");
-  if (p == NULL)
+  /* Detect the set of worker threads */
+  u32 worker_thread_count, worker_thread_first;
+  vlib_get_core_worker_count_and_first_index (&worker_thread_count,
+                                              &worker_thread_first);
+
+  // set value to all worker and main-thread-0 context
+  dpdk_hqos_setup_pktfield(xd, id, offset, mask, 0);
+  for (i = worker_thread_first;
+       i < (worker_thread_first + worker_thread_count); i++)
     {
-      clib_warning ("worker thread registration not found");
-      rv = VNET_API_ERROR_INVALID_VALUE_2;
-      goto done;
+      dpdk_hqos_setup_pktfield(xd, id, offset, mask, i);
     }
-
-  vlib_thread_registration_t *tr = (vlib_thread_registration_t *) p[0];
-  int worker_thread_first = tr->first_index;
-  int worker_thread_count = tr->count;
-
-  // Propagate packet field configuration to all workers
-  for (i = 0; i < worker_thread_count; i++)
-    switch (id)
-      {
-      case 0:
-       xd->hqos_wt[worker_thread_first + i].hqos_field0_slabpos = offset;
-       xd->hqos_wt[worker_thread_first + i].hqos_field0_slabmask = mask;
-       xd->hqos_wt[worker_thread_first + i].hqos_field0_slabshr =
-         count_trailing_zeros (mask);
-       break;
-      case 1:
-       xd->hqos_wt[worker_thread_first + i].hqos_field1_slabpos = offset;
-       xd->hqos_wt[worker_thread_first + i].hqos_field1_slabmask = mask;
-       xd->hqos_wt[worker_thread_first + i].hqos_field1_slabshr =
-         count_trailing_zeros (mask);
-       break;
-      case 2:
-      default:
-       xd->hqos_wt[worker_thread_first + i].hqos_field2_slabpos = offset;
-       xd->hqos_wt[worker_thread_first + i].hqos_field2_slabmask = mask;
-       xd->hqos_wt[worker_thread_first + i].hqos_field2_slabshr =
-         count_trailing_zeros (mask);
-      }
 
   BAD_SW_IF_INDEX_LABEL;
 done:
@@ -551,22 +526,18 @@ static void
     }
 
   // Detect the set of worker threads
-  vlib_thread_main_t *tm = vlib_get_thread_main ();
-  uword *p = hash_get_mem (tm->thread_registrations_by_name, "workers");
-  if (p == NULL)
-    {
-      clib_warning ("worker thread registration not found");
-      rv = VNET_API_ERROR_INVALID_VALUE_2;
-      goto done;
-    }
-
-  vlib_thread_registration_t *tr = (vlib_thread_registration_t *) p[0];
-  int worker_thread_first = tr->first_index;
-  int worker_thread_count = tr->count;
+  u32 worker_thread_count, worker_thread_first;
+  vlib_get_core_worker_count_and_first_index (&worker_thread_count,
+                                              &worker_thread_first);
 
   val = (tc << 2) + queue;
-  for (i = 0; i < worker_thread_count; i++)
-    xd->hqos_wt[worker_thread_first + i].hqos_tc_table[entry] = val;
+  // set value to all worker and main-thread-0 context
+  xd->hqos_wt[0].hqos_tc_table[entry] = val;
+  for (i = worker_thread_first;
+       i < (worker_thread_first + worker_thread_count); i++)
+    {
+      xd->hqos_wt[i].hqos_tc_table[entry] = val;
+    }
 
   BAD_SW_IF_INDEX_LABEL;
 done:

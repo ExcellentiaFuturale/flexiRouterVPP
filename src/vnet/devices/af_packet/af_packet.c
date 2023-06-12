@@ -369,7 +369,7 @@ af_packet_create_if (vlib_main_t * vm, u8 * host_if_name, u8 * hw_addr_set,
 
   error = ethernet_register_interface (vnm, af_packet_device_class.index,
 				       if_index, hw_addr, &apif->hw_if_index,
-				       af_packet_eth_flag_change);
+				       af_packet_eth_flag_change, 0);
 
   if (error)
     {

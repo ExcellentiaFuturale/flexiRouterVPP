@@ -14,7 +14,7 @@
  */
 
 /*
- * List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ * List of features and fixes made for FlexiWAN (denoted by FLEXIWAN_FEATURE and FLEXIWAN_FIX flags):
  *  - integrating_dpdk_qos_sched : The DPDK QoS scheduler integration in VPP is
  *    currently in deprecated state. It is likely deprecated as changes
  *    in DPDK scheduler APIs required corresponding changes from VPP side.
@@ -32,7 +32,11 @@
  *    VPP to initialize TUN interfaces using DPDK. This sets up TUN interfaces
  *    to make use of DPDK interface feature like QoS.
  *
- * 
+ *  - call vlib_buffer_worker_init : if VPP is configured to use cores, and HQoS is enabled,
+ *    there will be no worker threads, as one core will be used for main thread and other - for HQoS.
+ *    In this case, the multi-threading data structures will be not initialized. But some of them,
+ *    like per thread buffer pools, are used by the HQoS thread. So we have to initialize them manually.
+ *  
  * This deprecated file is enhanced and added as part of the
  * flexiwan feature - integrating_dpdk_qos_sched
  * Location of deprecated file: extras/deprecated/dpdk-hqos/hqos.c 
@@ -89,137 +93,112 @@
 #define HQOS_RED_EWMA_FILTER_WEIGHT          9
 
 
-static dpdk_device_config_hqos_t hqos_params_default;
-static struct rte_sched_subport_profile_params hqos_subport_profile_default;
-static struct rte_sched_pipe_params hqos_pipe_params_default;
-static struct rte_sched_subport_params hqos_subport_params_default;
-
-
 /***
  *
  * HQoS init default configuration values
  *
  ***/
 
-static void __clib_constructor dpdk_hqos_setup_default_param()
+void 
+dpdk_hqos_init_default_port_params (struct rte_sched_port_params * port_params,
+                                    u32 max_subports, u32 max_pipes)
 {
-  int i;
-
-  /* Init hqos default subport profile params */
-  hqos_subport_profile_default.tb_rate = HQOS_DEFAULT_SCHED_PORT_RATE;
-  hqos_subport_profile_default.tb_size =
-    MAX((HQOS_DEFAULT_SCHED_TB_SIZE_MS *
-	 (HQOS_DEFAULT_SCHED_PORT_RATE / 1000)), HQOS_MIN_SCHED_TB_SIZE_BYTES);
-  for (i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++)
-    {
-      hqos_subport_profile_default.tc_rate[i] = HQOS_DEFAULT_SCHED_PORT_RATE;
-    }
-  hqos_subport_profile_default.tc_period =
-    HQOS_DEFAULT_SCHED_SUBPORT_TC_PERIOD_MS;
-
-
-  /* Init hqos default params */
-  hqos_params_default.hqos_thread_valid = 0;
-  hqos_params_default.swq_size = HQOS_SWQ_SIZE;
-  hqos_params_default.burst_enq = HQOS_BURST_ENQ;
-  hqos_params_default.burst_deq = HQOS_BURST_DEQ;
-
-  hqos_params_default.pktfield0_slabpos = 0;
-  hqos_params_default.pktfield0_slabmask = 0;
-  hqos_params_default.pktfield1_slabpos = 0;
-  hqos_params_default.pktfield1_slabmask = 0;
-  hqos_params_default.pktfield2_slabpos = 0;
-  hqos_params_default.pktfield2_slabmask = 0;
-  /* If set by user, pktfield2 (tc_q) shall use this table for mapping */
-  for (i = 0; i < 64; i++)
-    {
-      hqos_params_default.tc_table[i] = 0;
-    }
-  for (i = 0; i < HQOS_MAX_SCHED_SUBPORTS; i++)
-    {
-      hqos_params_default.pipes[i] = 0;
-    }
+  /* Init hqos default port params */
+  port_params->n_subports_per_port =
+    (max_subports) ? max_subports : HQOS_DEFAULT_SCHED_SUBPORTS;
+  port_params->n_pipes_per_subport =
+    (max_pipes) ? max_pipes : HQOS_DEFAULT_SCHED_PIPES;
+  port_params->name = NULL; /* Set at port init */
+  port_params->socket = 0;  /* Set at port init */
+  port_params->rate = HQOS_DEFAULT_SCHED_PORT_RATE;
+  port_params->mtu = HQOS_DEFAULT_SCHED_MTU_BYTES;
+  port_params->frame_overhead = RTE_SCHED_FRAME_OVERHEAD_DEFAULT;
+  port_params->subport_profiles = NULL;/* Set at port init*/
+  port_params->n_subport_profiles = 0; /* Set at port init*/
+  port_params->n_max_subport_profiles = port_params->n_subports_per_port;
+}
 
 
-  /* Init port params */
-  hqos_params_default.port_params.name = NULL; /* Set at port init */
-  hqos_params_default.port_params.socket = 0;  /* Set at port init */
-  hqos_params_default.port_params.rate = HQOS_DEFAULT_SCHED_PORT_RATE;
-  hqos_params_default.port_params.mtu = HQOS_DEFAULT_SCHED_MTU_BYTES;
-  hqos_params_default.port_params.frame_overhead =
-    RTE_SCHED_FRAME_OVERHEAD_DEFAULT;
-  hqos_params_default.port_params.n_subports_per_port =
-    HQOS_MAX_SCHED_SUBPORTS;
-  hqos_params_default.port_params.subport_profiles = NULL;/* Set at port init*/
-  hqos_params_default.port_params.n_subport_profiles = 0; /* Set at port init*/
-  hqos_params_default.port_params.n_max_subport_profiles =
-    HQOS_MAX_SCHED_SUBPORT_PROFILES;
-  hqos_params_default.port_params.n_pipes_per_subport = HQOS_MAX_SCHED_PIPES;
-
-
+static void 
+dpdk_hqos_init_default_pipe_params (struct rte_sched_pipe_params * pipe_params)
+{
   /* Init hqos default pipe params */
-  hqos_pipe_params_default.tb_rate = HQOS_DEFAULT_SCHED_PORT_RATE;
-  hqos_pipe_params_default.tb_size =
-    MAX((HQOS_DEFAULT_SCHED_TB_SIZE_MS *
-	 (hqos_pipe_params_default.tb_rate / 1000)),
-	HQOS_MIN_SCHED_TB_SIZE_BYTES);
+  u32 i;
+  pipe_params->tb_rate = HQOS_DEFAULT_SCHED_PORT_RATE;
+  pipe_params->tb_size =
+    MAX(((HQOS_DEFAULT_SCHED_TB_SIZE_MS * pipe_params->tb_rate) / 1000),
+        HQOS_MIN_SCHED_TB_SIZE_BYTES);
   for (i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++)
-    {
-      hqos_pipe_params_default.tc_rate[i] = hqos_pipe_params_default.tb_rate;
-    }
-  hqos_pipe_params_default.tc_period = HQOS_DEFAULT_SCHED_PIPE_TC_PERIOD_MS;
-  hqos_pipe_params_default.tc_ov_weight = 1;
+    pipe_params->tc_rate[i] = pipe_params->tb_rate;
+  pipe_params->tc_period = HQOS_DEFAULT_SCHED_PIPE_TC_PERIOD_MS;
+  pipe_params->tc_ov_weight = 1;
   // Default weights Q0 : 4, Q1: 3, Q2: 2, Q3: 1
   for (i = 0; i < RTE_SCHED_BE_QUEUES_PER_PIPE; i++)
-    {
-      hqos_pipe_params_default.wrr_weights[i] =
-	RTE_SCHED_BE_QUEUES_PER_PIPE - i;
-    }
+    pipe_params->wrr_weights[i] = RTE_SCHED_BE_QUEUES_PER_PIPE - i;
+}
 
 
+static void
+dpdk_hqos_init_default_subport_params
+(struct rte_sched_subport_params * subport_params, u32 max_pipes)
+{
   /* Init hqos default subport params */
-  hqos_subport_params_default.n_pipes_per_subport_enabled =
-    HQOS_MAX_SCHED_PIPES;
+  u32 i;
+  subport_params->n_pipes_per_subport_enabled =
+    (max_pipes) ? max_pipes : HQOS_DEFAULT_SCHED_PIPES;
   for (i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++)
-    {
-      hqos_subport_params_default.qsize[i] = HQOS_SCHED_QUEUE_SIZE;
-    }
-  hqos_subport_params_default.pipe_profiles = NULL; /* Set at subport init */
-  hqos_subport_params_default.n_pipe_profiles = 0;  /* Set at subport init */
-  hqos_subport_params_default.n_max_pipe_profiles =
-    HQOS_MAX_SCHED_PIPE_PROFILES;
+    subport_params->qsize[i] = HQOS_SCHED_QUEUE_SIZE;
+  subport_params->pipe_profiles = NULL; /* Set at subport init */
+  subport_params->n_pipe_profiles = 0;  /* Set at subport init */
+  subport_params->n_max_pipe_profiles =
+    subport_params->n_pipes_per_subport_enabled;
 
 #ifdef RTE_SCHED_RED
   for (i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++)
     {
-      hqos_subport_params_default.red_params[i][RTE_COLOR_GREEN].min_th =
+      subport_params->red_params[i][RTE_COLOR_GREEN].min_th =
 	HQOS_RED_QUEUE_MIN_THR_GREEN;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_GREEN].max_th =
+      subport_params->red_params[i][RTE_COLOR_GREEN].max_th =
 	HQOS_RED_QUEUE_MAX_THR;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_GREEN].maxp_inv =
+      subport_params->red_params[i][RTE_COLOR_GREEN].maxp_inv =
 	HQOS_RED_INV_MARK_PROBABILITY;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_GREEN].wq_log2 =
+      subport_params->red_params[i][RTE_COLOR_GREEN].wq_log2 =
 	HQOS_RED_EWMA_FILTER_WEIGHT;
 
-      hqos_subport_params_default.red_params[i][RTE_COLOR_YELLOW].min_th =
+      subport_params->red_params[i][RTE_COLOR_YELLOW].min_th =
 	HQOS_RED_QUEUE_MIN_THR_YELLOW;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_YELLOW].max_th =
+      subport_params->red_params[i][RTE_COLOR_YELLOW].max_th =
 	HQOS_RED_QUEUE_MAX_THR;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_YELLOW].maxp_inv =
+      subport_params->red_params[i][RTE_COLOR_YELLOW].maxp_inv =
 	HQOS_RED_INV_MARK_PROBABILITY;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_YELLOW].wq_log2 =
+      subport_params->red_params[i][RTE_COLOR_YELLOW].wq_log2 =
 	HQOS_RED_EWMA_FILTER_WEIGHT;
 
-      hqos_subport_params_default.red_params[i][RTE_COLOR_RED].min_th =
+      subport_params->red_params[i][RTE_COLOR_RED].min_th =
 	HQOS_RED_QUEUE_MIN_THR_RED;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_RED].max_th =
+      subport_params->red_params[i][RTE_COLOR_RED].max_th =
 	HQOS_RED_QUEUE_MAX_THR;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_RED].maxp_inv =
+      subport_params->red_params[i][RTE_COLOR_RED].maxp_inv =
 	HQOS_RED_INV_MARK_PROBABILITY;
-      hqos_subport_params_default.red_params[i][RTE_COLOR_RED].wq_log2 =
+      subport_params->red_params[i][RTE_COLOR_RED].wq_log2 =
 	HQOS_RED_EWMA_FILTER_WEIGHT;
     }
 #endif
+}
+
+
+static void 
+dpdk_hqos_init_default_subport_profile_params
+(struct rte_sched_subport_profile_params * subport_profile_params)
+{
+  /* Init hqos default subport profile params */
+  subport_profile_params->tb_rate = HQOS_DEFAULT_SCHED_PORT_RATE;
+  subport_profile_params->tb_size =
+    MAX((HQOS_DEFAULT_SCHED_TB_SIZE_MS *
+	 (HQOS_DEFAULT_SCHED_PORT_RATE / 1000)), HQOS_MIN_SCHED_TB_SIZE_BYTES);
+  for (u32 i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++)
+    subport_profile_params->tc_rate[i] = HQOS_DEFAULT_SCHED_PORT_RATE;
+  subport_profile_params->tc_period = HQOS_DEFAULT_SCHED_SUBPORT_TC_PERIOD_MS;
 }
 
 
@@ -230,8 +209,7 @@ dpdk_hqos_init_port (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos)
 
   struct rte_sched_subport_profile_params *subport_profile_params;
   vec_add2 (hqos->port_params.subport_profiles, subport_profile_params, 1);
-  memcpy (subport_profile_params, &hqos_subport_profile_default,
-	  sizeof (hqos_subport_profile_default));
+  dpdk_hqos_init_default_subport_profile_params (subport_profile_params);
   hqos->port_params.n_subport_profiles = 1;
 
   xd->hqos_ht->hqos = rte_sched_port_config (&hqos->port_params);
@@ -252,18 +230,19 @@ dpdk_hqos_add_subport (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos,
   clib_error_t * error = NULL;
   u32 n_subports = vec_len (hqos->subport_params);
 
-  if (subport_id >= HQOS_MAX_SCHED_SUBPORTS)
+  if (subport_id >= hqos->port_params.n_subports_per_port)
     {
-      error = clib_error_return (0, "subport id higher than max - allowed "
-				 "range (%u to %u)",
-				 0, (HQOS_MAX_SCHED_SUBPORTS - 1));
+      error = clib_error_return
+        (0, "subport id higher than max - allowed range (%u to %u)", 0,
+         (hqos->port_params.n_subports_per_port - 1));
       return error;
     }
   if (subport_id != n_subports)
     {
       /* subport id need to continuous - skipping id not allowed */
-      error = clib_error_return (0, "configuration skips subport id - next "
-				 "subport id to use: %u", n_subports);
+      error = clib_error_return
+        (0, "configuration skips subport id - next subport id to use: %u",
+         n_subports);
       return error;
     }
   if (profile_id >= hqos->port_params.n_subport_profiles)
@@ -275,14 +254,13 @@ dpdk_hqos_add_subport (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos,
   /* Add to subport params vector */
   struct rte_sched_subport_params *subport_params;
   vec_add2 (hqos->subport_params, subport_params, 1);
-  memcpy (subport_params, &hqos_subport_params_default,
-	  sizeof (hqos_subport_params_default));
+  dpdk_hqos_init_default_subport_params
+    (subport_params, hqos->port_params.n_pipes_per_subport);
 
   /* Setup pipe params */
   struct rte_sched_pipe_params *pipe_params;
   vec_add2 (hqos->subport_params[subport_id].pipe_profiles, pipe_params, 1);
-  memcpy (pipe_params, &hqos_pipe_params_default,
-	  sizeof (hqos_pipe_params_default));
+  dpdk_hqos_init_default_pipe_params (pipe_params); 
   hqos->subport_params[subport_id].n_pipe_profiles = 1;
 
   /* Add new subport */
@@ -320,19 +298,20 @@ dpdk_hqos_add_pipe (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos,
       return error;
     }
 
-  if (pipe_id >= HQOS_MAX_SCHED_PIPES)
+  if (pipe_id >= hqos->port_params.n_pipes_per_subport)
     {
-      error = clib_error_return (0, "pipe id higher than max - allowed range "
-				 "(%u to %u)",
-				 0, (HQOS_MAX_SCHED_PIPES - 1));
+      error = clib_error_return
+        (0, "pipe id higher than max - allowed range (%u to %u)", 0,
+         (hqos->port_params.n_pipes_per_subport - 1));
       return error;
     }
+  vec_validate_init_empty (hqos->pipes, subport_id, 0);
   if (pipe_id != hqos->pipes[subport_id])
     {
       /* subport id need to continuous - skipping id not allowed */
-      error = clib_error_return (0, "configuration skips pipe id - next "
-				 "pipe id to use: %u",
-				 hqos->pipes[subport_id]);
+      error = clib_error_return
+        (0, "configuration skips pipe id - next pipe id to use: %u",
+         hqos->pipes[subport_id]);
       return error;
     }
   if (profile_id >= hqos->subport_params[subport_id].n_pipe_profiles)
@@ -352,7 +331,8 @@ dpdk_hqos_add_pipe (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos,
     {
       hqos->pipes[subport_id]++;
       /* Set pipe profile id at (subport, pipe) id index */
-      vec_validate(hqos->pipe_profile_id_map[subport_id], pipe_id);
+      vec_validate_init_empty (hqos->pipe_profile_id_map, subport_id, 0);
+      vec_validate (hqos->pipe_profile_id_map[subport_id], pipe_id);
       hqos->pipe_profile_id_map[subport_id][pipe_id] = profile_id;
     }
   return error;
@@ -386,13 +366,6 @@ dpdk_hqos_validate_mask (u64 mask, u32 n)
     return -4;			/* Error */
 
   return 0;			/* OK */
-}
-
-
-void
-dpdk_device_config_hqos_default (dpdk_device_config_hqos_t * hqos)
-{
-  memcpy (hqos, &hqos_params_default, sizeof (hqos_params_default));
 }
 
 
@@ -473,11 +446,11 @@ dpdk_hqos_get_subport_profile (dpdk_device_config_hqos_t * hqos,
                                struct rte_sched_subport_profile_params * p_out)
 {
   clib_error_t *error = NULL;
-  if (profile_id >= HQOS_MAX_SCHED_SUBPORT_PROFILES)
+  if (profile_id >= hqos->port_params.n_max_subport_profiles)
     {
       error = clib_error_return (0, "profile id higher than max - allowed "
-				 "range (%u to %u)",
-				 0, (HQOS_MAX_SCHED_SUBPORT_PROFILES - 1));
+				 "range (%u to %u)", 0,
+                                 (hqos->port_params.n_max_subport_profiles-1));
       return error;
     }
   if (profile_id < hqos->port_params.n_subport_profiles)
@@ -487,8 +460,7 @@ dpdk_hqos_get_subport_profile (dpdk_device_config_hqos_t * hqos,
     }
   else
     {
-      memcpy (p_out, &hqos_subport_profile_default,
-	      sizeof (struct rte_sched_subport_profile_params));
+      dpdk_hqos_init_default_subport_profile_params (p_out);
     }
   return error;
 }
@@ -503,11 +475,11 @@ dpdk_hqos_setup_subport_profile (dpdk_device_t * xd,
 {
   clib_error_t *error = NULL;
   int rv;
-  if (profile_id >= HQOS_MAX_SCHED_SUBPORT_PROFILES)
+  if (profile_id >= hqos->port_params.n_max_subport_profiles)
     {
-      error = clib_error_return (0, "profile id higher than max - allowed "
-				 "range (%u to %u)",
-				 0, (HQOS_MAX_SCHED_SUBPORT_PROFILES - 1));
+      error = clib_error_return
+        (0, "profile id higher than max - allowed range (%u to %u)", 0,
+         (hqos->port_params.n_max_subport_profiles-1));
       return error;
     }
 
@@ -518,14 +490,10 @@ dpdk_hqos_setup_subport_profile (dpdk_device_t * xd,
       /* Update existing profile */
       memcpy (&subport_profiles[profile_id], params,
 	      sizeof (struct rte_sched_subport_profile_params));
-      rv = rte_sched_port_subport_profile_update (xd->hqos_ht->hqos,
-						  profile_id,
-						  &subport_profiles[profile_id]);
+      rv = rte_sched_port_subport_profile_update
+        (xd->hqos_ht->hqos, profile_id, &subport_profiles[profile_id]);
       if (rv)
-	{
-	  error = clib_error_return (0, "subport profile update failed %d",
-				     rv);
-	}
+        error = clib_error_return (0, "subport profile update failed %d", rv);
     }
   else if (profile_id == hqos->port_params.n_subport_profiles)
     {
@@ -552,7 +520,8 @@ dpdk_hqos_setup_subport_profile (dpdk_device_t * xd,
   else
     {
       /* subport profile id need to continuous - skipping id not allowed */
-      error = clib_error_return (0, "configuration skips profile id - next "
+      error = clib_error_return
+        (0, "configuration skips profile id - next "
 				 "subport profile id to use: %u",
 				 hqos->port_params.n_subport_profiles);
     }
@@ -572,11 +541,11 @@ dpdk_hqos_get_pipe_profile (dpdk_device_config_hqos_t * hqos,
       error = clib_error_return (0, "subport not found");
       return error;
     }
-  if (profile_id >= HQOS_MAX_SCHED_PIPE_PROFILES)
+  if (profile_id >= hqos->port_params.n_pipes_per_subport)
     {
-      error = clib_error_return (0, "profile id higher than max - allowed "
-				 "range (%u to %u)",
-				 0, (HQOS_MAX_SCHED_SUBPORT_PROFILES - 1));
+      error = clib_error_return
+        (0, "profile id higher than max - allowed range (%u to %u)", 0,
+         (hqos->port_params.n_pipes_per_subport - 1));
       return error;
     }
 
@@ -588,8 +557,7 @@ dpdk_hqos_get_pipe_profile (dpdk_device_config_hqos_t * hqos,
     }
   else
     {
-      memcpy (p_out, &hqos_pipe_params_default,
-	      sizeof (struct rte_sched_pipe_params));
+      dpdk_hqos_init_default_pipe_params (p_out);
     }
   return error;
 }
@@ -609,11 +577,11 @@ dpdk_hqos_setup_pipe_profile (dpdk_device_t * xd,
       error = clib_error_return (0, "subport not found");
       return error;
     }
-  if (profile_id >= HQOS_MAX_SCHED_PIPE_PROFILES)
+  if (profile_id >= hqos->port_params.n_pipes_per_subport)
     {
       error = clib_error_return (0, "profile id higher than max - allowed "
-				 "range (%u to %u)",
-				 0, (HQOS_MAX_SCHED_PIPE_PROFILES - 1));
+				 "range (%u to %u)", 0,
+				 (hqos->port_params.n_pipes_per_subport - 1));
       return error;
     }
 
@@ -684,10 +652,9 @@ dpdk_hqos_setup_subport (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos,
       rv = rte_sched_subport_config (xd->hqos_ht->hqos, subport_id, NULL,
 				     profile_id);
       if (rv)
-	{
-	  error = clib_error_return (0, "subport profile update failed %d",
-				     rv);
-	}
+	error = clib_error_return (0, "subport profile update failed %d", rv);
+      else
+        hqos->subport_profile_id_map[subport_id] = profile_id;
     }
   else if (subport_id == n_subports)
     {
@@ -733,7 +700,10 @@ dpdk_hqos_setup_pipe (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos,
 	{
 	  error = clib_error_return (0, "pipe profile update failed %u", rv);
 	}
-	goto done;
+      else
+        {
+          hqos->pipe_profile_id_map[subport_id][pipe_id] = profile_id;
+        }
     }
   else if (pipe_id == n_pipes)
     {
@@ -806,6 +776,46 @@ dpdk_hqos_get_queue_stats (dpdk_device_t * xd,
 }
 
 
+void
+dpdk_hqos_setup_pktfield (dpdk_device_t *xd, u32 id, u32 offset, u64 mask,
+			  u32 thread_index)
+{
+  switch (id)
+    {
+    case 0:
+      xd->hqos_wt[thread_index].hqos_field0_slabpos = offset;
+      xd->hqos_wt[thread_index].hqos_field0_slabmask = mask;
+      xd->hqos_wt[thread_index].hqos_field0_slabshr =
+	count_trailing_zeros (mask);
+      break;
+    case 1:
+      xd->hqos_wt[thread_index].hqos_field1_slabpos = offset;
+      xd->hqos_wt[thread_index].hqos_field1_slabmask = mask;
+      xd->hqos_wt[thread_index].hqos_field1_slabshr =
+	count_trailing_zeros (mask);
+      break;
+    case 2:
+      xd->hqos_wt[thread_index].hqos_field2_slabpos = offset;
+      xd->hqos_wt[thread_index].hqos_field2_slabmask = mask;
+      xd->hqos_wt[thread_index].hqos_field2_slabshr =
+	count_trailing_zeros (mask);
+    }
+}
+
+
+static void
+dpdk_hqos_setup_pktfield_default (dpdk_device_t *xd,
+				  dpdk_device_config_hqos_t * hqos,
+				  u32 thread_index)
+{
+  dpdk_hqos_setup_pktfield (xd, 0, hqos->pktfield0_slabpos,
+			    hqos->pktfield0_slabmask, thread_index);
+  dpdk_hqos_setup_pktfield (xd, 1, hqos->pktfield1_slabpos,
+			    hqos->pktfield1_slabmask, thread_index);
+  dpdk_hqos_setup_pktfield (xd, 2, hqos->pktfield2_slabpos,
+			    hqos->pktfield2_slabmask, thread_index);
+}
+
 /***
  *
  * HQoS init
@@ -822,18 +832,9 @@ dpdk_port_setup_hqos (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos)
   clib_error_t * error = NULL;
 
   /* Detect the set of worker threads */
-  int worker_thread_first = 0;
-  int worker_thread_count = 0;
-
-  uword *p = hash_get_mem (tm->thread_registrations_by_name, "workers");
-  vlib_thread_registration_t *tr =
-    p ? (vlib_thread_registration_t *) p[0] : 0;
-
-  if (tr && tr->count > 0)
-    {
-      worker_thread_first = tr->first_index;
-      worker_thread_count = tr->count;
-    }
+  u32 worker_thread_count, worker_thread_first;
+  vlib_get_core_worker_count_and_first_index (&worker_thread_count,
+                                              &worker_thread_first);
 
   /* Allocate the per-thread device data array */
   vec_validate_aligned (xd->hqos_wt, tm->n_vlib_mains - 1,
@@ -851,7 +852,7 @@ dpdk_port_setup_hqos (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos)
     {
       u32 swq_flags = RING_F_SP_ENQ | RING_F_SC_DEQ;
 
-      snprintf (name, sizeof (name), "SWQ-worker%u-to-device%u", i,
+      snprintf (name, sizeof (name), "SWQ-worker%u-to-device%hu", i,
 		xd->port_id);
       xd->hqos_ht->swq[i] =
 	rte_ring_create (name, hqos->swq_size, xd->cpu_socket, swq_flags);
@@ -904,30 +905,19 @@ dpdk_port_setup_hqos (dpdk_device_t * xd, dpdk_device_config_hqos_t * hqos)
   xd->hqos_ht->swq_pos = 0;
   xd->hqos_ht->flush_count = 0;
 
-  /* Set up per-thread device data for each worker thread */
-  for (i = 0; i < worker_thread_count + 1; i++)
+  /* Set up per-thread device data for each worker thread and main-thread-0 */
+  dpdk_hqos_setup_pktfield_default (xd, hqos, 0);
+  memcpy (xd->hqos_wt[0].hqos_tc_table, hqos->tc_table,
+          sizeof (hqos->tc_table));
+  u32 count = 0;
+  xd->hqos_wt[0].swq = xd->hqos_ht->swq[count++];
+  for (i = worker_thread_first;
+       i < (worker_thread_first + worker_thread_count); i++)
     {
-      u32 tid;
-      if (i)
-	tid = worker_thread_first + (i - 1);
-      else
-	tid = i;
-
-      xd->hqos_wt[tid].swq = xd->hqos_ht->swq[i];
-      xd->hqos_wt[tid].hqos_field0_slabpos = hqos->pktfield0_slabpos;
-      xd->hqos_wt[tid].hqos_field0_slabmask = hqos->pktfield0_slabmask;
-      xd->hqos_wt[tid].hqos_field0_slabshr =
-	count_trailing_zeros (hqos->pktfield0_slabmask);
-      xd->hqos_wt[tid].hqos_field1_slabpos = hqos->pktfield1_slabpos;
-      xd->hqos_wt[tid].hqos_field1_slabmask = hqos->pktfield1_slabmask;
-      xd->hqos_wt[tid].hqos_field1_slabshr =
-	count_trailing_zeros (hqos->pktfield1_slabmask);
-      xd->hqos_wt[tid].hqos_field2_slabpos = hqos->pktfield2_slabpos;
-      xd->hqos_wt[tid].hqos_field2_slabmask = hqos->pktfield2_slabmask;
-      xd->hqos_wt[tid].hqos_field2_slabshr =
-	count_trailing_zeros (hqos->pktfield2_slabmask);
-      memcpy (xd->hqos_wt[tid].hqos_tc_table, hqos->tc_table,
-	      sizeof (hqos->tc_table));
+      xd->hqos_wt[i].swq = xd->hqos_ht->swq[count++];
+      dpdk_hqos_setup_pktfield_default (xd, hqos, i);
+      memcpy (xd->hqos_wt[i].hqos_tc_table, hqos->tc_table,
+              sizeof (hqos->tc_table));
     }
 
   return error;
@@ -1163,6 +1153,14 @@ dpdk_hqos_thread_fn (void *arg)
 {
   vlib_worker_thread_t *w = (vlib_worker_thread_t *) arg;
   vlib_worker_thread_init (w);
+#ifdef FLEXIWAN_FIX /* call vlib_buffer_worker_init */
+  {
+    clib_error_t* vlib_buffer_worker_init (vlib_main_t * vm);
+    vlib_main_t *vm;
+    vm = vlib_get_main ();
+    vlib_buffer_worker_init(vm);
+  }
+#endif /* FLEXIWAN_FIX call vlib_buffer_worker_init */
   dpdk_hqos_thread (w);
 }
 
@@ -1228,30 +1226,19 @@ dpdk_hqos_metadata_set (dpdk_device_hqos_per_worker_thread_t * hqos,
 	      tc_q = (RTE_SCHED_TRAFFIC_CLASS_BE << 2) |
 		(RTE_SCHED_BE_QUEUES_PER_PIPE - 1);
 	    }
-	  if (vnet_buffer2 (b)->qos.id_1 <
-	      hqos_params_default.port_params.n_subports_per_port)
-	    {
-	      /* Packet with subport id set */
-	      subport_id = vnet_buffer2 (b)->qos.id_1;
-	    }
-	  else
-	    {
-	      /* Packet with subport id not set - Use default */
-	      subport_id = 0;
-	    }
-	  if (vnet_buffer2 (b)->qos.id_2 <
-	      hqos_params_default.port_params.n_pipes_per_subport)
-	    {
-	      /* Packet with pipe id set */
-	      pipe_id = vnet_buffer2 (b)->qos.id_2;
-	    }
-	  else
-	    {
-	      /* Packet with pipe id not set - Use default */
-	      pipe_id = 0;
-	    }
+	  /*
+	   * DPDK HQoS uses buffer metadata(qos.id) as below:
+	   * The lower 16 bits represent the pipe id and the higher 16 bits
+	   * represent the subport id.
+	   */
+	  subport_id = vnet_buffer2 (b)->qos.id >> 16;
+	  pipe_id = vnet_buffer2 (b)->qos.id & 0xFFFF;
+
 	  rte_sched_port_pkt_write (port, pkt, subport_id, pipe_id,
 				    (tc_q >> 2), (tc_q & 0x3), 0);
+
+	  /* Reset QoS the identifier field */
+	  vnet_buffer2 (b)->qos.id = 0;
 	}
       return;
     }

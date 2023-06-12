@@ -679,7 +679,8 @@ vnet_mpls_tunnel_create (u8 l2_only,
         mpls_tunnel_class.index,
         mti,
         mpls_tunnel_hw_interface_class.index,
-        mti);
+        mti,
+        0);
     hi = vnet_get_hw_interface (vnm, mt->mt_hw_if_index);
 
     if (mt->mt_flags & MPLS_TUNNEL_FLAG_L2)

@@ -443,7 +443,7 @@ int vnet_gtpu_add_mod_del_tunnel
 	{
 	  hw_if_index = vnet_register_interface
 	    (vnm, gtpu_device_class.index, t - gtm->tunnels,
-	     gtpu_hw_class.index, t - gtm->tunnels);
+	     gtpu_hw_class.index, t - gtm->tunnels, 0);
 	  hi = vnet_get_hw_interface (vnm, hw_if_index);
 	}
 

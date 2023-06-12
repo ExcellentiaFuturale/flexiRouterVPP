@@ -387,7 +387,7 @@ create_l2tpv3_ipv6_tunnel (l2t_main_t * lm,
     {
       hw_if_index = vnet_register_interface
 	(vnm, l2tpv3_device_class.index, s - lm->sessions,
-	 l2tpv3_hw_class.index, s - lm->sessions);
+	 l2tpv3_hw_class.index, s - lm->sessions, 0);
       hi = vnet_get_hw_interface (vnm, hw_if_index);
       hi->output_node_index = l2t_encap_node.index;
       /* $$$$ initialize custom dispositions, if needed */

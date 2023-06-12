@@ -170,7 +170,7 @@ typedef struct
   u32 dev_instance;		/* Real device instance in tunnel vector */
   u32 user_instance;		/* Instance name being shown to user */
 #ifdef FLEXIWAN_FEATURE         /* acl_based_classification */
-  u16 qos_hierarchy_id;
+  u32 qos_id;
 #endif /* FLEXIWAN_FEATURE - acl_based_classification */
     VNET_DECLARE_REWRITE;
 } vxlan_tunnel_t;
@@ -233,6 +233,12 @@ typedef struct
   /* Record used instances */
   uword *instance_used;
   u32 flow_id_start;
+
+#ifdef FLEXIWAN_FEATURE
+  /* Custom vxlan port default is 4789 */
+  u32 vxlan_port;
+#endif
+
 } vxlan_main_t;
 
 extern vxlan_main_t vxlan_main;
@@ -267,7 +273,7 @@ typedef struct
 #endif
 
 #ifdef FLEXIWAN_FEATURE /* acl_based_classification */
-  u16 qos_hierarchy_id;
+  u32 qos_id;
 #endif /* FLEXIWAN_FEATURE - acl_based_classification */
 } vnet_vxlan_add_del_tunnel_args_t;
 
@@ -334,7 +340,11 @@ vxlan4_find_tunnel (vxlan_main_t * vxm, last_tunnel_cache4 * cache, u16 * cache_
       vxlan_decap_info_t di = {.as_u64 = key4.value };
       u32 instance = vxm->tunnel_index_by_sw_if_index[di.sw_if_index];
       vxlan_tunnel_t *t0 = pool_elt_at_index (vxm->tunnels, instance);
-      /* Validate VXLAN tunnel destination port against packet source port */
+      /* Compare the configured VXLAN tunnel destination port (dst_port) against the received VXLAN packet's source port:
+         tunnel.dest_port == packet.src_port: the UDP session is correct and packets decap and processed. 
+         tunnel.dest_port != packet.src_port: the UDP session is not correct because of ports mistmatch and packets
+                            must be punted to the flexiagent application. 
+       */
       if (PREDICT_FALSE (t0->dest_port != src_port))
         return decap_not_found;
 
@@ -390,7 +400,11 @@ vnet_vxlan4_set_escape_feature_group_x1(vnet_feature_group_t g, vlib_buffer_t *b
   clib_memset (&last4, 0xff, sizeof last4);
   last_src_port = 0;
 
+#ifdef FLEXIWAN_FEATURE
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
+#else
   if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(4789))
+#endif
   {
     di = vxlan4_find_tunnel (&vxlan_main, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &sw_if_index);
     if (di.sw_if_index != ~0)
@@ -422,13 +436,21 @@ vnet_vxlan4_set_escape_feature_group_x2(vnet_feature_group_t g,
   clib_memset (&last4, 0xff, sizeof last4);
   last_src_port = 0;
 
+#ifdef FLEXIWAN_FEATURE
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
+#else
   if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(4789))
+#endif
   {
     di = vxlan4_find_tunnel (&vxlan_main, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &sw_if_index);
     if (di.sw_if_index != ~0)
       vnet_buffer(b0)->escape_feature_groups |= g;
   }
+#ifdef FLEXIWAN_FEATURE
+  if (ip41->protocol == IP_PROTOCOL_UDP  &&  udp1->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
+#else
   if (ip41->protocol == IP_PROTOCOL_UDP  &&  udp1->dst_port == clib_host_to_net_u16(4789))
+#endif
   {
     di = vxlan4_find_tunnel (&vxlan_main, &last4, &last_src_port, fi1, ip41, udp1, vxlan1, &sw_if_index);
     if (di.sw_if_index != ~0)
@@ -471,25 +493,41 @@ always_inline void vnet_vxlan4_set_escape_feature_group_x4(vnet_feature_group_t 
   clib_memset (&last4, 0xff, sizeof last4);
   last_src_port = 0;
 
+#ifdef FLEXIWAN_FEATURE
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
+#else
   if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(4789))
+#endif
   {
     di = vxlan4_find_tunnel (&vxlan_main, &last4, &last_src_port, fi0, ip40, udp0, vxlan0, &sw_if_index);
     if (di.sw_if_index != ~0)
       vnet_buffer(b0)->escape_feature_groups |= g;
   }
+#ifdef FLEXIWAN_FEATURE
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
+#else
   if (ip41->protocol == IP_PROTOCOL_UDP  &&  udp1->dst_port == clib_host_to_net_u16(4789))
+#endif
   {
     di = vxlan4_find_tunnel (&vxlan_main, &last4, &last_src_port, fi1, ip41, udp1, vxlan1, &sw_if_index);
     if (di.sw_if_index != ~0)
       vnet_buffer(b1)->escape_feature_groups |= g;
   }
+#ifdef FLEXIWAN_FEATURE
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
+#else
   if (ip42->protocol == IP_PROTOCOL_UDP  &&  udp2->dst_port == clib_host_to_net_u16(4789))
+#endif
   {
     di = vxlan4_find_tunnel (&vxlan_main, &last4, &last_src_port, fi2, ip42, udp2, vxlan2, &sw_if_index);
     if (di.sw_if_index != ~0)
       vnet_buffer(b2)->escape_feature_groups |= g;
   }
+#ifdef FLEXIWAN_FEATURE
+  if (ip40->protocol == IP_PROTOCOL_UDP  &&  udp0->dst_port == clib_host_to_net_u16(vxlan_main.vxlan_port))
+#else
   if (ip43->protocol == IP_PROTOCOL_UDP  &&  udp3->dst_port == clib_host_to_net_u16(4789))
+#endif
   {
     di = vxlan4_find_tunnel (&vxlan_main, &last4, &last_src_port, fi3, ip43, udp3, vxlan3, &sw_if_index);
     if (di.sw_if_index != ~0)

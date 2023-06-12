@@ -1490,7 +1490,7 @@ virtio_pci_create_if (vlib_main_t * vm, virtio_pci_create_if_args_t * args)
   error = ethernet_register_interface (vnm, virtio_device_class.index,
 				       vif->dev_instance, vif->mac_addr,
 				       &vif->hw_if_index,
-				       virtio_pci_flag_change);
+				       virtio_pci_flag_change, 0);
 
   if (error)
     {

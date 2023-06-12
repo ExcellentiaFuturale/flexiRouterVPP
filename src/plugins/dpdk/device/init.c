@@ -390,6 +390,7 @@ dpdk_lib_init (dpdk_main_t * dm)
       dpdk_portid_t next_port_id;
       dpdk_device_config_t *devconf = 0;
       vlib_pci_addr_t pci_addr;
+      pci_addr.as_u32 = ~0;
 
       if (!rte_eth_dev_is_valid_port(i))
 	continue;
@@ -405,16 +406,21 @@ dpdk_lib_init (dpdk_main_t * dm)
 
 #ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
       pci_dev = dpdk_get_pci_device (&dev_info);
+
+      if (pci_dev)
+	{
+	  pci_addr.domain = pci_dev->addr.domain;
+	  pci_addr.bus = pci_dev->addr.bus;
+	  pci_addr.slot = pci_dev->addr.devid;
+	  pci_addr.function = pci_dev->addr.function;
+	}
+
       devconf = dpdk_get_device_config (pci_dev, dev_info.if_index);
       if (!devconf)
 	{
 	  clib_warning ("DPDK missing config. Skipping %s device",
 			   dev_info.driver_name);
 	  continue;
-	}
-      if (devconf->use_default && default_devconf)
-        {
-	  memcpy (devconf, default_devconf, sizeof (dpdk_device_config_t));
 	}
       /* Create vnet interface */
       vec_add2_aligned (dm->devices, xd, 1, CLIB_CACHE_LINE_BYTES);
@@ -816,9 +822,21 @@ dpdk_lib_init (dpdk_main_t * dm)
              devconf->hqos.hqos_thread = cpu;
            }
 
-         dpdk_device_config_hqos_default (&devconf->hqos);
-         clib_error_t *rv;
-         rv = dpdk_port_setup_hqos (xd, &devconf->hqos);
+         /*
+          * If no device specific limit for subports and pipes are provided,
+          * Use the default conf's subport and pipe limit
+          */
+         if ((devconf->hqos.max_subports == 0) && (default_devconf))
+           devconf->hqos.max_subports = default_devconf->hqos.max_subports;
+         if ((devconf->hqos.max_pipes == 0) && (default_devconf))
+           devconf->hqos.max_pipes = default_devconf->hqos.max_pipes;
+         dpdk_hqos_init_default_port_params
+                 (&devconf->hqos.port_params, devconf->hqos.max_subports,
+                  devconf->hqos.max_pipes);
+         devconf->hqos.swq_size = HQOS_SWQ_SIZE;
+         devconf->hqos.burst_enq = HQOS_BURST_ENQ;
+         devconf->hqos.burst_deq = HQOS_BURST_DEQ;
+         clib_error_t * rv = dpdk_port_setup_hqos (xd, &devconf->hqos);
          if (rv)
            return rv;
 
@@ -836,7 +854,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	{
 	  xd->hw_if_index = vnet_register_interface
 	    (dm->vnet_main, dpdk_device_class.index, xd->device_index,
-	     tun_device_hw_interface_class.index, 0);
+	     tun_device_hw_interface_class.index, 0, 0);
 	  hi = vnet_get_hw_interface (dm->vnet_main, xd->hw_if_index);
 	  xd->sw_if_index = hi->sw_if_index;
 
@@ -851,7 +869,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	  error = ethernet_register_interface
 	    (dm->vnet_main, dpdk_device_class.index, xd->device_index,
 	     /* ethernet address */ addr,
-	     &xd->hw_if_index, dpdk_flag_change);
+	     &xd->hw_if_index, dpdk_flag_change, 0);
 
 	  if (error)
 	    return error;
@@ -860,7 +878,7 @@ dpdk_lib_init (dpdk_main_t * dm)
       error = ethernet_register_interface
 	(dm->vnet_main, dpdk_device_class.index, xd->device_index,
 	 /* ethernet address */ addr,
-	 &xd->hw_if_index, dpdk_flag_change);
+	 &xd->hw_if_index, dpdk_flag_change, 0);
       if (error)
 	return error;
 #endif /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
@@ -1360,11 +1378,7 @@ dpdk_device_config (dpdk_config_main_t * conf, vlib_pci_addr_t pci_addr,
     }
   if (!input)
     {
-      /*
-       * No device specific configuration provided. Set flag to make use of
-       * default device config
-       */
-      devconf->use_default = 1;
+      // No device specific configuration provided.
       return 0;
     }
 #else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
@@ -1764,7 +1778,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 		  {                                   \
 		    vec_add1 (conf->eal_init_args, s);\
 		  }                                   \
-		else if (unformat (input, "%s", s))   \
+		else if (unformat (input, "%s", &s))   \
 		  {                                   \
 		    vec_add1 (s, 0);		      \
 		    if (strstr((char*)s, "af_packet"))\
@@ -1772,7 +1786,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 		    vec_add1 (conf->eal_init_args, s);\
 		  }                                   \
 	      }                                       \
-            else if (unformat (input, "%s", s))       \
+            else if (unformat (input, "%s", &s))       \
 	      {                                       \
 		    vec_add1 (s, 0);		      \
 		    vec_add1 (conf->eal_init_args, s);\
@@ -1940,6 +1954,15 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 		default_devconf->vlan_strip_offload > 0)
 		devconf->vlan_strip_offload =
 			default_devconf->vlan_strip_offload;
+
+        if (default_devconf && (!devconf->hqos_enabled) &&
+            (default_devconf->hqos_enabled))
+          memcpy (&devconf->hqos, &default_devconf->hqos,
+                  sizeof(dpdk_device_config_hqos_t));
+
+        /* copy hqos enabled from default device */
+        _(hqos_enabled)
+
 #else /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 	if (devconf->vlan_strip_offload == 0 &&
 		conf->default_devconf.vlan_strip_offload > 0)

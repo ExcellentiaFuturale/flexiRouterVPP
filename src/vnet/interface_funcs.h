@@ -37,6 +37,12 @@
  *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - API to check if this interface is a subinterface. It is ported from next release.
+ */
+
 #ifndef included_vnet_interface_funcs_h
 #define included_vnet_interface_funcs_h
 
@@ -221,7 +227,21 @@ void vnet_hw_interface_walk (vnet_main_t * vnm,
 u32 vnet_register_interface (vnet_main_t * vnm,
 			     u32 dev_class_index,
 			     u32 dev_instance,
-			     u32 hw_class_index, u32 hw_instance);
+			     u32 hw_class_index, u32 hw_instance
+#ifdef FLEXIWAN_FEATURE
+           ,
+           vnet_interface_flexiwan_flags_t flexiwan_flags
+#endif /* FLEXIWAN_FEATURE */
+           );
+
+#ifdef FLEXIWAN_FEATURE
+always_inline vnet_sw_interface_flags_t
+vnet_hw_interface_get_flexiwan_flag (vnet_main_t * vnm, u32 hw_if_index, vnet_interface_flexiwan_flags_t flag)
+{
+  vnet_hw_interface_t *hw = vnet_get_hw_interface (vnm, hw_if_index);
+  return (hw->flexiwan_flags & flag);
+}
+#endif /* FLEXIWAN_FEATURE */
 
 /**
  * Set interface output node - for interface registered without its output/tx
@@ -341,6 +361,16 @@ vnet_sw_interface_is_up (vnet_main_t * vnm, u32 sw_if_index)
   return (vnet_sw_interface_is_admin_up (vnm, sw_if_index) &&
 	  vnet_sw_interface_is_link_up (vnm, sw_if_index));
 }
+
+#ifdef FLEXIWAN_FEATURE
+always_inline uword
+vnet_sw_interface_is_sub (vnet_main_t *vnm, u32 sw_if_index)
+{
+  vnet_sw_interface_t *sw = vnet_get_sw_interface (vnm, sw_if_index);
+
+  return (sw->sw_if_index != sw->sup_sw_if_index);
+}
+#endif
 
 always_inline vlib_frame_t *
 vnet_get_frame_to_sw_interface (vnet_main_t * vnm, u32 sw_if_index)

@@ -443,7 +443,7 @@ bond_create_if (vlib_main_t * vm, bond_create_if_args_t * args)
   args->error = ethernet_register_interface
     (vnm, bond_dev_class.index, bif->dev_instance /* device instance */ ,
      bif->hw_address /* ethernet address */ ,
-     &bif->hw_if_index, 0 /* flag change */ );
+     &bif->hw_if_index, 0 /* flag change */ , 0 /* flexiwan flags */ );
 
   if (args->error)
     {

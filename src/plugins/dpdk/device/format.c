@@ -1011,6 +1011,10 @@ unformat_hqos (unformat_input_t * input, dpdk_device_config_hqos_t * hqos)
     {
       if (unformat (input, "hqos-thread %u", &hqos->hqos_thread))
        hqos->hqos_thread_valid = 1;
+      else if (unformat (input, "num-subports %u", &hqos->max_subports))
+        ;
+      else if (unformat (input, "num-pipes %u", &hqos->max_pipes))
+        ;
       else
        {
          error = clib_error_return (0, "unknown input `%U'",

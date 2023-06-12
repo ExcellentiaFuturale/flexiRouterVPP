@@ -793,7 +793,7 @@ vmxnet3_create_if (vlib_main_t * vm, vmxnet3_create_if_args_t * args)
   /* create interface */
   error = ethernet_register_interface (vnm, vmxnet3_device_class.index,
 				       vd->dev_instance, vd->mac_addr,
-				       &vd->hw_if_index, vmxnet3_flag_change);
+				       &vd->hw_if_index, vmxnet3_flag_change, 0);
 
   if (error)
     {

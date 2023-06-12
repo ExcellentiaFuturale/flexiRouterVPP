@@ -80,7 +80,7 @@ vnet_main_init (vlib_main_t * vm)
 
   hw_if_index = vnet_register_interface
     (vnm, vnet_local_interface_device_class.index, /* instance */ 0,
-     vnet_local_interface_hw_class.index, /* instance */ 0);
+     vnet_local_interface_hw_class.index, /* instance */ 0, 0);
   hw = vnet_get_hw_interface (vnm, hw_if_index);
 
   vnm->local_interface_hw_if_index = hw_if_index;

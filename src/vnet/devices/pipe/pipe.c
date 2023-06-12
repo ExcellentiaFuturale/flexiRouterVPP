@@ -566,7 +566,7 @@ vnet_create_pipe_interface (u8 is_specified,
 
   error = ethernet_register_interface (vnm, pipe_device_class.index,
 				       instance, address, &hw_if_index,
-				       /* flag change */ 0);
+				       /* flag change */ 0, /* flexiwan flags */ 0);
 
   if (error)
     {

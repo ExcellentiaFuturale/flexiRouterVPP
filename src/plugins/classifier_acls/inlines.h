@@ -24,7 +24,8 @@ extern classifier_acls_main_t classifier_acls_main;
  * specified interface
  */
 always_inline u32
-classifier_acls_classify_packet (vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6)
+classifier_acls_classify_packet (vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6,
+                                 u32 *out_acl_index, u32 *out_acl_rule_index)
 {
   classifier_acls_main_t * cmp = &classifier_acls_main;
   fa_5tuple_opaque_t fa_5tuple0;
@@ -33,20 +34,21 @@ classifier_acls_classify_packet (vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6)
   u32 match_rule_index;
   u32 trace_bitmap;
   u8 action;
+  u32 lc_index;
 
-  vec_validate_init_empty (cmp->acl_lc_index_by_sw_if_index, sw_if_index, ~0);
-  if (cmp->acl_lc_index_by_sw_if_index[sw_if_index] == ~0)
+  vec_validate_init_empty (cmp->acl_list_id_by_sw_if_index, sw_if_index, ~0);
+  u32 acl_list_id = cmp->acl_list_id_by_sw_if_index[sw_if_index];
+  if ((acl_list_id == ~0) ||
+      ((lc_index = cmp->acl_lc_index_by_acl_list_id[acl_list_id]) == ~0))
     {
       /* No ACLs attached */
       return 0;
     }
   acl_plugin_fill_5tuple_inline
-    (cmp->acl_plugin.p_acl_main,
-     cmp->acl_lc_index_by_sw_if_index[sw_if_index],
+    (cmp->acl_plugin.p_acl_main, lc_index,
      b, is_ip6, 1 /* is_input */, 0 /* is_l2 */, &fa_5tuple0);
   if (acl_plugin_match_5tuple_inline
-      (cmp->acl_plugin.p_acl_main,
-       cmp->acl_lc_index_by_sw_if_index[sw_if_index],
+      (cmp->acl_plugin.p_acl_main, lc_index,
        &fa_5tuple0, is_ip6, &action, &match_acl_pos,
        &match_acl_index, &match_rule_index, &trace_bitmap))
     {
@@ -65,6 +67,14 @@ classifier_acls_classify_packet (vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6)
       vnet_buffer2 (b)->qos.importance = importance;
       vnet_buffer2 (b)->qos.source = QOS_SOURCE_IP;
       b->flags |= VNET_BUFFER_F_IS_CLASSIFIED;
+      if (out_acl_index)
+        {
+	  *out_acl_index = match_acl_index;
+        }
+      if (out_acl_rule_index)
+        {
+	  *out_acl_rule_index = match_rule_index;
+        }
       return 1;
     }
   else

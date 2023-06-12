@@ -127,7 +127,7 @@ session_create_lookpback (u32 table_id, u32 * sw_if_index,
 
   clib_memset (intf_mac, 0, sizeof (intf_mac));
 
-  if (vnet_create_loopback_interface (sw_if_index, intf_mac, 0, 0))
+  if (vnet_create_loopback_interface (sw_if_index, intf_mac, 0, 0, 0))
     {
       clib_warning ("couldn't create loopback. stopping the test!");
       return -1;

@@ -41,10 +41,9 @@ import "vnet/ip/ip_types.api";
     @param encap_vrf_id - Encap route table FIB index
     @param decap_next_index - index of decap next graph node
     @param vni - The VXLAN Network Identifier, uint24
-    @param dest_port - the destination port of the vxlan tunnel, provisioned by
-                       fleximanage
+    @param dest_port - the destination port of the vxlan tunnel, provisioned by fleximanage
     #ifdef FLEXIWAN_FEATURE  acl_based_classification
-    @param qos_hierarchy_id - Represents the tunnel in hierarchical QoS
+    @param qos_id - Represents QoS ID to be marked in buffer metadata
     #endif FLEXIWAN_FEATURE - acl_based_classification
 */
 define vxlan_add_del_tunnel
@@ -62,7 +61,7 @@ define vxlan_add_del_tunnel
   u32 next_hop_sw_if_index;
   vl_api_address_t next_hop_ip;
   u16 dest_port;
-  u16 qos_hierarchy_id;
+  u32 qos_id;
 };
 
 define vxlan_add_del_tunnel_reply

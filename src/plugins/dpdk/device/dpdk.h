@@ -361,10 +361,8 @@ typedef struct
 #define MAX(v1, v2)	((v1) > (v2) ? (v1) : (v2))
 #endif
 
-#define HQOS_MAX_SCHED_SUBPORTS              1
-#define HQOS_MAX_SCHED_SUBPORT_PROFILES      1
-#define HQOS_MAX_SCHED_PIPES                 4096
-#define HQOS_MAX_SCHED_PIPE_PROFILES         4096
+#define HQOS_DEFAULT_SCHED_SUBPORTS          4
+#define HQOS_DEFAULT_SCHED_PIPES             128
 
 #define HQOS_DEFAULT_SCHED_MTU_BYTES         (1500 + 18) /*Ethernet vlan case*/
 #define HQOS_DEFAULT_SCHED_PORT_RATE         1250000000
@@ -396,13 +394,20 @@ typedef struct dpdk_device_config_hqos_t
   u64 pktfield2_slabmask;
   u32 tc_table[64];
 
+  /*
+   * Optional configuration input from startup conf. It is used to configure
+   * the maximum supported subports and pipes in dpdk scheduler
+   */
+  u32 max_subports;
+  u32 max_pipes;
+
   struct rte_sched_port_params port_params;
 
   /* Vector with subport params indexed on the subport id */
   struct rte_sched_subport_params * subport_params;
 
   /* Per subport : count of pipes configured */
-  u32 pipes[HQOS_MAX_SCHED_SUBPORTS];
+  u32 *pipes;
 
   /* Index represents subport_id and value at the index represents profile id */
   u32 * subport_profile_id_map;
@@ -411,7 +416,7 @@ typedef struct dpdk_device_config_hqos_t
     Index represents [subport_id][pipe_id] and
     value at the index represents profile id
    */
-  u32 * pipe_profile_id_map[HQOS_MAX_SCHED_SUBPORTS];
+  u32 ** pipe_profile_id_map;
 } dpdk_device_config_hqos_t;
 #endif /* FLEXIWAN_FEATURE - integrating_dpdk_qos_sched */
 
@@ -437,10 +442,6 @@ typedef struct
 #undef _
     clib_bitmap_t * workers;
 
-#ifdef FLEXIWAN_FEATURE /* enable_dpdk_tun_init */
-  /* flag to indicate if the device need to take the default device config */
-  u8 use_default;
-#endif   /* FLEXIWAN_FEATURE - enable_dpdk_tun_init */
 #ifdef FLEXIWAN_FEATURE /* integrating_dpdk_qos_sched */
   u8 hqos_enabled;
   dpdk_device_config_hqos_t hqos;
@@ -661,15 +662,17 @@ void dpdk_buffer_poison_trajectory_all (void);
 
 /* DPDK HQoS functions */
 
+
+void 
+dpdk_hqos_init_default_port_params (struct rte_sched_port_params * port_params,
+                                    u32 max_subports, u32 max_pipes);
+
 clib_error_t *
 unformat_hqos (unformat_input_t * input,
                              dpdk_device_config_hqos_t * hqos);
 
 int
 dpdk_hqos_validate_mask (u64 mask, u32 n);
-
-void
-dpdk_device_config_hqos_default (dpdk_device_config_hqos_t * hqos);
 
 clib_error_t *
 dpdk_hqos_get_intf_context (u32 sw_if_index, dpdk_device_t ** xd,
@@ -711,6 +714,10 @@ dpdk_hqos_get_queue_stats (dpdk_device_t * xd,
 			   dpdk_device_config_hqos_t * hqos, u32 subport_id,
 			   u32 pipe_id, u32 tc, u32 tc_q,
 			   struct rte_sched_queue_stats * stats);
+
+void
+dpdk_hqos_setup_pktfield (dpdk_device_t *xd, u32 id, u32 offset, u64 mask,
+                          u32 thread_index);
 
 clib_error_t *dpdk_port_setup_hqos (dpdk_device_t * xd,
                                    dpdk_device_config_hqos_t * hqos);

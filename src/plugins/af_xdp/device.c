@@ -399,7 +399,7 @@ af_xdp_create_if (vlib_main_t * vm, af_xdp_create_if_args_t * args)
   /* create interface */
   if (ethernet_register_interface (vnm, af_xdp_device_class.index,
 				   ad->dev_instance, ad->hwaddr,
-				   &ad->hw_if_index, af_xdp_flag_change))
+				   &ad->hw_if_index, af_xdp_flag_change, 0))
     {
       args->rv = VNET_API_ERROR_INVALID_INTERFACE;
       args->error =
