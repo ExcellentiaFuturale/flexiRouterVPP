@@ -57,9 +57,9 @@
  */
 
 #define foreach_fwapp_interface_type  \
+  _(UNDEFINED,      "undefined")      \
   _(DPDK,           "dpdk")           \
-  _(TAP,            "tap")            \
-  _(TUN,            "tun")
+  _(TAP,            "tap")
 
 typedef enum _fwapp_interface_type_t
 {
@@ -76,6 +76,7 @@ typedef struct _fwapp_interface_t {
     u32                         app_sw_if_index;
     u32                         src_sw_if_index;
     fwapp_interface_send_fn_t   pfn_send;
+// nnoww - implement - add interface counters
 } fwapp_interface_t;
 
 #define foreach_fwapp_app_type  \
@@ -145,7 +146,7 @@ typedef struct _fwapp_application_cfg_t {
 } fwapp_application_cfg_t;
 
 u32 fwapp_add_app (fwapp_application_cfg_t* cfg);
-u32 fwapp_del_app (u8* name);
+u32 fwapp_del_app (fwapp_application_t* app);
 u32 fwapp_app_attach (fwapp_application_t* app, fwapp_interface_cfg_t* cfgs);
 u32 fwapp_app_detach (fwapp_application_t* app, fwapp_interface_cfg_t* cfgs);
 

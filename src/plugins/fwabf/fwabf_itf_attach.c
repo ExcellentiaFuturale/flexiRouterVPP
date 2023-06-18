@@ -909,14 +909,14 @@ VLIB_REGISTER_NODE (fwabf_ip6_node) =
   .next_nodes = IP6_LOOKUP_NEXT_NODES,
 };
 
-VNET_FEATURE_INIT (abf_ip4_feat, static) =
+VNET_FEATURE_INIT (fwabf_ip4_feature, static) =
 {
   .arc_name = "ip4-unicast",
   .node_name = "fwabf-input-ip4",
   .runs_after = VNET_FEATURES ("acl-plugin-in-ip4-fa"),
 };
 
-VNET_FEATURE_INIT (abf_ip6_feat, static) =
+VNET_FEATURE_INIT (fwabf_ip6_feature, static) =
 {
   .arc_name = "ip6-unicast",
   .node_name = "fwabf-input-ip6",

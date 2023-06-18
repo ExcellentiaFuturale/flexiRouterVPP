@@ -17,6 +17,7 @@
 # The FWAPP plugin implements functionality required for Flexiwan Application Store feature.
 # For more details see official documentation on the Flexiwan Application Store.
 
+
 add_vpp_plugin(fwapp
   SOURCES
 #  fwapp_api.c

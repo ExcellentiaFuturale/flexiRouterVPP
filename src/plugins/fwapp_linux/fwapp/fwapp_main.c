@@ -71,7 +71,7 @@
 
 fwapp_main_t fwapp_main;
 
-u32  static fwapp_tuntap_send(fwapp_interface_t* iface, vlib_buffer_t* b0);
+u32  static fwapp_tap_send(fwapp_interface_t* iface, vlib_buffer_t* b0);
 u32  static fwapp_dpdk_send(fwapp_interface_t* iface, vlib_buffer_t* b0);
 void static fwapp_app_detach_one(fwapp_application_t* app, u32 i);
 
@@ -84,6 +84,12 @@ typedef enum _fwapp_node_next_t
 } fwapp_node_next_t;
 
 
+// nnoww - implement
+// If packet was received on APP interface:
+// no ACL matching is performed
+// if app is of divert type - forward to next on VPP arc
+// if app is of span type  - drop (sanity, APP SERVER should not send us packets)
+
 u32 fwapp_add_app (fwapp_application_cfg_t* cfg)
 {
   fwapp_main_t*           fam = &fwapp_main;
@@ -91,12 +97,6 @@ u32 fwapp_add_app (fwapp_application_cfg_t* cfg)
   fwapp_application_t*    next_app = NULL;
   u32                     ai;
   u32                     ret;
-
-  app = fwapp_get_app_by_name(cfg->name);
-  if (app) {
-    clib_error ("the %s application exists");
-    return VNET_API_ERROR_ENTRY_ALREADY_EXISTS;
-  }
 
   if (cfg->next_name) {
     next_app = fwapp_get_app_by_name (cfg->next_name);
@@ -137,15 +137,9 @@ u32 fwapp_add_app (fwapp_application_cfg_t* cfg)
   return 0;
 }
 
-u32 fwapp_del_app (u8* name)
+u32 fwapp_del_app (fwapp_application_t*  app)
 {
-  fwapp_main_t*        fam = &fwapp_main;
-  fwapp_application_t* app = fwapp_get_app_by_name(name);
-
-  if (!app) {
-    clib_warning("app %s does not exists", name);
-    return 0;
-  }
+  fwapp_main_t* fam = &fwapp_main;
 
   for (u32 i = 0; i < vec_len(app->ifaces); i++)
       fwapp_app_detach_one(app, i);
@@ -183,8 +177,8 @@ u32 fwapp_app_attach (fwapp_application_t* app, fwapp_interface_cfg_t* cfgs)
     iface.type             = cfg->type;
     iface.app_sw_if_index  = cfg->app_sw_if_index;
     iface.src_sw_if_index  = cfg->src_sw_if_index;
-    if (cfg->type == FWAPP_INTERFACE_TUN || cfg->type == FWAPP_INTERFACE_TAP) {
-      iface.pfn_send = fwapp_tuntap_send;
+    if (cfg->type == FWAPP_INTERFACE_TAP) {
+      iface.pfn_send = fwapp_tap_send;
     } else if (cfg->type == FWAPP_INTERFACE_DPDK) {
       iface.pfn_send = fwapp_dpdk_send;
     } else {
@@ -327,7 +321,7 @@ static inline u32 fwapp_app_send(vlib_main_t * vm, fwapp_application_t* app, vli
   return next;
 }
 
-u32 static fwapp_tuntap_send(fwapp_interface_t* iface, vlib_buffer_t* b0)
+u32 static fwapp_tap_send(fwapp_interface_t* iface, vlib_buffer_t* b0)
 {
   // nnoww - observation - it looks like we have no DROP counters for the TAP interface here !!!
   vnet_buffer(b0)->sw_if_index[VLIB_TX] = iface->app_sw_if_index;
@@ -368,7 +362,7 @@ typedef struct _fwapp_input_trace_t
   index_t           policy;   /* Policy index or UNDEFINED */
 } fwapp_input_trace_t;
 
-// nnoww - test - ntop tap interface per WAN/LAN to collect statistics per interface
+// nnoww - test - ntop tap interface per WAN/LAN to collect statistics per interface?
 
 static inline uword
 fwapp_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * from_frame, int is_ip6)
@@ -403,6 +397,7 @@ fwapp_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t *
           b0 = vlib_get_buffer (vm, bi0);
 
           // nnoww - implement - counters
+
           curr_app = fwapp_get_app_by_buffer(b0);
           next_app = (curr_app != NULL) ? curr_app->next : fam->graph_head.next;
           while (next_app->anchor != 1)
@@ -418,12 +413,12 @@ fwapp_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t *
             next_app = next_app->next;
           }
           if (next_app->anchor == 1) {  /* no more applications in graph, go to next default node */
-            vnet_feature_next (&next0, b0);
+	          vnet_feature_next (&next0, b0);
           }
 
           if (PREDICT_FALSE (b0->flags & VLIB_BUFFER_IS_TRACED))
             {
-              // nnoww - implement - add proper trace here
+              // nnoww - implement
               // fwapp_input_trace_t *tr;
               // tr = vlib_add_trace (vm, node, b0, sizeof (*tr));
               // tr->next   = next0;
@@ -492,7 +487,7 @@ VNET_FEATURE_INIT (fwapp_ip4_feature, static) =
 {
   .arc_name     = "ip4-unicast",
   .node_name    = "fwapp-input-ip4",
-  .runs_after   = VNET_FEATURES ("acl-plugin-in-ip4-fa", "ip4-classifier-acls"),
+  .runs_after   = VNET_FEATURES ("acl-plugin-in-ip4-fa"),
   .runs_before  = VNET_FEATURES ("fwabf-input-ip4", "ip4-lookup"),
 };
 
@@ -516,7 +511,7 @@ VNET_FEATURE_INIT (fwapp_ip6_feature, static) =
 {
   .arc_name     = "ip6-unicast",
   .node_name    = "fwapp-input-ip6",
-  .runs_after   = VNET_FEATURES ("acl-plugin-in-ip6-fa", "ip6-classifier-acls"),
+  .runs_after   = VNET_FEATURES ("acl-plugin-in-ip6-fa"),
   .runs_before  = VNET_FEATURES ("fwabf-input-ip6", "ip6-lookup"),
 };
 /* *INDENT-ON* */
@@ -546,10 +541,7 @@ fwapp_init (vlib_main_t * vm)
 
 // nnoww - implement - use ai with vppctl fwapp add
 
-VLIB_INIT_FUNCTION (fwapp_init) =
-{
-    .runs_after = VLIB_INITS("dpdk_main_init"),
-};
+VLIB_INIT_FUNCTION (fwapp_init);
 
 /* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
