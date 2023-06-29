@@ -1145,6 +1145,8 @@ ikev2_initial_contact_cleanup_internal (ikev2_main_per_thread_data_t * ptd,
   /* find old IKE SAs with the same authenticated identity */
   /* *INDENT-OFF* */
   pool_foreach (tmp, ptd->sas)  {
+    if (tmp->state == IKEV2_STATE_DELETED)
+      continue;
     if (!ikev2_is_id_equal (&tmp->i_id, &sa->i_id)
         || !ikev2_is_id_equal(&tmp->r_id, &sa->r_id))
       continue;
@@ -1354,7 +1356,7 @@ ikev2_process_auth_req (vlib_main_t * vm, ikev2_sa_t * sa,
   return 1;
 
 malformed:
-  ikev2_set_state (sa, IKEV2_STATE_DELETED, ": malformed IKE_AUTH");
+  ikev2_set_state (sa, IKEV2_STATE_DELETE, ": malformed IKE_AUTH");
   return 0;
 }
 
@@ -2517,7 +2519,7 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
 	}
       else
 	{
-	  ikev2_set_state (sa, IKEV2_STATE_DELETED, ": unexpected IKE_AUTH");
+	  ikev2_set_state (sa, IKEV2_STATE_DELETE, ": unexpected IKE_AUTH");
 	  goto done;
 	}
     }
@@ -2551,7 +2553,7 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
       /* received N(AUTHENTICATION_FAILED) */
       else if (sa->state == IKEV2_STATE_AUTH_FAILED)
 	{
-	  ikev2_set_state (sa, IKEV2_STATE_DELETED, ": auth failed");
+	  ikev2_set_state (sa, IKEV2_STATE_DELETE, ": auth failed");
 	  goto done;
 	}
       /* received unsupported critical payload */
@@ -2798,6 +2800,8 @@ ikev2_retransmit_sa_init (ike_header_t * ike, ip_address_t iaddr,
 
   /* *INDENT-OFF* */
   pool_foreach (sa, ptd->sas)  {
+    if (sa->state == IKEV2_STATE_DELETED)
+      continue;
     res = ikev2_retransmit_sa_init_one (sa, ike, iaddr, raddr, rlen);
     if (res)
       return res;
@@ -3188,6 +3192,13 @@ ikev2_node_internal (vlib_main_t * vm,
 	  if (p)
 	    {
 	      sa0 = pool_elt_at_index (ptd->sas, p[0]);
+        if (sa0->state == IKEV2_STATE_DELETED)
+        {
+          vlib_node_increment_counter (vm, node->node_index,
+                    IKEV2_ERROR_IKE_REQ_IGNORE,
+                    1);
+          goto dispatch0;
+        }
 	      slen = ikev2_retransmit_resp (sa0, ike0);
 	      if (slen)
 		{
@@ -3240,6 +3251,13 @@ ikev2_node_internal (vlib_main_t * vm,
 	  if (p)
 	    {
 	      sa0 = pool_elt_at_index (ptd->sas, p[0]);
+        if (sa0->state == IKEV2_STATE_DELETED)
+        {
+          vlib_node_increment_counter (vm, node->node_index,
+                    IKEV2_ERROR_IKE_REQ_IGNORE,
+                    1);
+          goto dispatch0;
+        }
 	      slen = ikev2_retransmit_resp (sa0, ike0);
 	      if (slen)
 		{
@@ -3312,6 +3330,13 @@ ikev2_node_internal (vlib_main_t * vm,
 	  if (p)
 	    {
 	      sa0 = pool_elt_at_index (ptd->sas, p[0]);
+        if (sa0->state == IKEV2_STATE_DELETED)
+        {
+          vlib_node_increment_counter (vm, node->node_index,
+                    IKEV2_ERROR_IKE_REQ_IGNORE,
+                    1);
+          goto dispatch0;
+        }
 	      slen = ikev2_retransmit_resp (sa0, ike0);
 	      if (slen)
 		{
@@ -3458,6 +3483,16 @@ ikev2_node_internal (vlib_main_t * vm,
 
 	  ikev2_delete_sa (ptd, sa0);
 	}
+#else
+  if (sa0 && (sa0->state == IKEV2_STATE_DELETE ||
+              sa0->state == IKEV2_STATE_NOTIFY_AND_DELETE ||
+              sa0->state == IKEV2_STATE_AUTH_FAILED ||
+              sa0->state == IKEV2_STATE_NO_PROPOSAL_CHOSEN ||
+              sa0->state == IKEV2_STATE_UNKNOWN
+              ))
+  {
+    ikev2_set_state (sa0, IKEV2_STATE_DELETED);
+  }
 #endif /* FLEXIWAN_FIX */
       if (PREDICT_FALSE ((node->flags & VLIB_NODE_FLAG_TRACE)
 			 && (b0->flags & VLIB_BUFFER_IS_TRACED)))
@@ -5465,10 +5500,7 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
           ikev2_child_sa_t *c;
           u8 del_old_ids = 0;
 #ifdef FLEXIWAN_FIX
-          if (sa->state == IKEV2_STATE_AUTH_FAILED ||
-              sa->state == IKEV2_STATE_NO_PROPOSAL_CHOSEN ||
-              sa->state == IKEV2_STATE_DELETED ||
-              sa->state == IKEV2_STATE_NOTIFY_AND_DELETE){
+          if (sa->state == IKEV2_STATE_DELETED) {
             vec_add1 (to_be_deleted, sa - tkm->sas);
           }
           else if (sa->state == IKEV2_STATE_SA_INIT) {
@@ -5511,7 +5543,7 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
 	  vec_foreach (c, sa->childs)
 	  {
 	    ikev2_delete_tunnel_interface (km->vnet_main, sa, c);
-	    ikev2_sa_del_child_sa (sa, c);
+//	    ikev2_sa_del_child_sa (sa, c);
 	  }
 	  ikev2_sa_free_all_vec (sa);
 	  hash_unset (tkm->sa_by_rspi, sa->rspi);

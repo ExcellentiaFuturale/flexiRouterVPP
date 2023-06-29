@@ -666,6 +666,13 @@ esp_encrypt_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 					     current_sa_bytes);
 	  current_sa_packets = current_sa_bytes = 0;
 
+#ifdef FLEXIWAN_FIX
+	  if (pool_is_free_index(im->sad, sa_index0)) {
+		clib_error ("sa_index0 %d is out of range", sa_index0);
+		goto trace;
+	  }
+#endif /*#ifdef FLEXIWAN_FIX*/
+
 	  sa0 = pool_elt_at_index (im->sad, sa_index0);
 
 	  /* fetch the second cacheline ASAP */
