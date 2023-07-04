@@ -37,6 +37,10 @@
  *   - snat_port_refcount_fix : Port reference count was wrongly
  *	decremented during new port allocation
  *
+ *   - fix_nat_drop_for_re_entered_packets: In certain packet flow like
+ *     reassembled packets, the packet is looped back into the ip input node.
+ *     In such cases, the already de-NATed packet gets dropped in NAT due to
+ *     lookup failure. The fix validates re_entry packets and prevents nat drop
  */
 
 #include <vlib/vlib.h>
@@ -836,6 +840,56 @@ nat44_ed_out2in_unknown_proto (snat_main_t * sm,
   return s;
 }
 
+#ifdef FLEXIWAN_FIX /* fix_nat_drop_for_re_entered_packets */
+/**
+ * @brief Check if this packet is hitting NAT for second time
+ *
+ * Nodes like full-reassembly can feed packet back into ip-input after
+ * reassembly. This can hit the NAT for second time and the packet can get
+ * dropped as it is already in de-NATed state. To avoid it, the re-entering
+ * packet is marked with CHECK_NAT_RE_ENTRY flag. The NAT module checks if it
+ * is a valid packet using metadata (NAT session and thread index) stored in
+ * the packet buffers.
+ *
+ * @param b             Packet buffer context
+ * @param rx_fib_index  FIB index of the input interface
+ *
+ * returns 1 if it is detected as a valid packet that is possibly entering NAT
+ * for second time.
+ */
+static u32
+nat_ed_check_nat_re_entry (vlib_buffer_t * b, u32 rx_fib_index)
+{
+  snat_main_t *sm = &snat_main;
+  if (vnet_buffer2 (b)->nat.thread_index >= vec_len (sm->per_thread_data))
+    return 0;
+  snat_main_per_thread_data_t *tsm =
+    vec_elt_at_index (sm->per_thread_data, vnet_buffer2 (b)->nat.thread_index);
+  if (pool_is_free_index
+      (tsm->sessions,
+       vnet_buffer2 (b)->nat.ed_out2in_nat_session_index))
+    return 0;
+  snat_session_t *s = pool_elt_at_index
+    (tsm->sessions, vnet_buffer2 (b)->nat.ed_out2in_nat_session_index);
+
+  ip4_header_t *ip = vlib_buffer_get_current (b);
+  u32 proto = ip_proto_to_nat_proto (ip->protocol);
+
+  /* check if packet matches a valid existing session */
+  if (s->in2out.addr.as_u32 == ip->dst_address.as_u32
+      && s->in2out.port == vnet_buffer (b)->ip.reass.l4_dst_port
+      && s->nat_proto == proto
+      && s->in2out.fib_index == rx_fib_index
+      && s->ext_host_addr.as_u32 == ip->src_address.as_u32
+      && s->ext_host_port == vnet_buffer (b)->ip.reass.l4_src_port
+      && s->sw_if_index == vnet_buffer (b)->sw_if_index[VLIB_RX]
+      && (s->flags & SNAT_SESSION_FLAG_STALE_NAT_ADDR) == 0)
+    return 1;
+  else
+    return 0;
+}
+#endif /* FLEXIWAN_FIX - fix_nat_drop_for_re_entered_packets */
+
 static inline uword
 nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 					  vlib_node_runtime_t * node,
@@ -917,6 +971,16 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
       tcp0 = (tcp_header_t *) udp0;
       proto0 = ip_proto_to_nat_proto (ip0->protocol);
 
+#ifdef FLEXIWAN_FIX /* fix_nat_drop_for_re_entered_packets */
+      // If it is valid re-entered packet, avoid attempt to double de-NAT
+      if (PREDICT_FALSE (b0->flags & VNET_BUFFER_F_CHECK_NAT_RE_ENTRY))
+        {
+          b0->flags &= ~VNET_BUFFER_F_CHECK_NAT_RE_ENTRY;
+          if (nat_ed_check_nat_re_entry (b0, rx_fib_index0))
+            goto trace0;
+        }
+#endif /* FLEXIWAN_FIX - fix_nat_drop_for_re_entered_packets */
+
       if (PREDICT_FALSE (proto0 == NAT_PROTOCOL_OTHER))
 	{
 	  next[0] = NAT_NEXT_OUT2IN_ED_SLOW_PATH;
@@ -954,7 +1018,7 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE
 	       /* Feature name : session_recovery_on_nat_addr_flap */
 	       && s0->ext_host_port == vnet_buffer (b0)->ip.reass.l4_src_port
-	       && (s0->flags && SNAT_SESSION_FLAG_STALE_NAT_ADDR) == 0))
+	       && (s0->flags & SNAT_SESSION_FLAG_STALE_NAT_ADDR) == 0))
 #else
 	       && s0->ext_host_port ==
 	       vnet_buffer (b0)->ip.reass.l4_src_port))
@@ -1146,6 +1210,15 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 				     thread_index);
       /* Per-user LRU list maintenance */
       nat44_session_update_lru (sm, s0, thread_index);
+
+#ifdef FLEXIWAN_FIX /* fix_nat_drop_for_re_entered_packets */
+      /*
+       * Mark the packets with the thread and session index, it can be of use
+       * if the packet re-enters NAT
+       */
+      vnet_buffer2 (b0)->nat.thread_index = thread_index;
+      vnet_buffer2 (b0)->nat.ed_out2in_nat_session_index = s0 - tsm->sessions;
+#endif /* FLEXIWAN_FIX - fix_nat_drop_for_re_entered_packets */
 
     trace0:
       if (PREDICT_FALSE ((node->flags & VLIB_NODE_FLAG_TRACE)

@@ -59,6 +59,11 @@
  *   - nat_interface_specific_address_selection : Feature to select NAT address
  *     based on the output interface assigned to the packet. This ensures using
  *     respective interface address for NAT (Provides multiwan-dia support)
+ *
+ *   - fix_nat_drop_for_re_entered_packets: In certain packet flow like
+ *     reassembled packets, the packet is looped back into the ip input node.
+ *     In such cases, the already de-NATed packet gets dropped in NAT due to
+ *     lookup failure. The fix validates re_entry packets and prevents nat drop
  */
 
 #include <vnet/vnet.h>
@@ -4050,6 +4055,14 @@ nat44_ed_get_worker_out2in_cb (vlib_buffer_t * b, ip4_header_t * ip,
   u32 hash;
 
   proto = ip_proto_to_nat_proto (ip->protocol);
+
+#ifdef FLEXIWAN_FIX /* fix_nat_drop_for_re_entered_packets */
+  // If it is re-entered packet, return the cached thread index
+  if (PREDICT_FALSE
+      ((b->flags & VNET_BUFFER_F_CHECK_NAT_RE_ENTRY) &&
+       (vnet_buffer2 (b)->nat.thread_index < vec_len (sm->per_thread_data))))
+    return vnet_buffer2 (b)->nat.thread_index;
+#endif /* FLEXIWAN_FIX - fix_nat_drop_for_re_entered_packets */
 
   if (PREDICT_TRUE (proto == NAT_PROTOCOL_UDP || proto == NAT_PROTOCOL_TCP))
     {
