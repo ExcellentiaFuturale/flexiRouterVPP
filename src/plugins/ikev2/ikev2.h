@@ -434,6 +434,10 @@ clib_error_t *ikev2_set_profile_esp_transforms (vlib_main_t * vm, u8 * name,
 clib_error_t *ikev2_set_profile_sa_lifetime (vlib_main_t * vm, u8 * name,
 					     u64 lifetime, u32 jitter,
 					     u32 handover, u64 maxdata);
+#ifdef FLEXIWAN_FEATURE
+clib_error_t *ikev2_set_profile_ike_lifetime (vlib_main_t * vm, u8 * name,
+			         u64 lifetime);
+#endif
 clib_error_t *ikev2_set_profile_tunnel_interface (vlib_main_t * vm, u8 * name,
 						  u32 sw_if_index);
 vnet_api_error_t ikev2_set_profile_ipsec_udp_port (vlib_main_t * vm,
@@ -446,7 +450,11 @@ vnet_api_error_t ikev2_set_profile_gateway (vlib_main_t * vm, u8 * name, fib_rou
 clib_error_t *ikev2_set_profile_udp_encap (vlib_main_t * vm, u8 * name);
 clib_error_t *ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name);
 clib_error_t *ikev2_initiate_delete_child_sa (vlib_main_t * vm, u32 ispi);
+#ifdef FLEXIWAN_FEATURE
+clib_error_t *ikev2_initiate_delete_ike_sa (vlib_main_t * vm, u64 ispi, u8 remote_only);
+#else
 clib_error_t *ikev2_initiate_delete_ike_sa (vlib_main_t * vm, u64 ispi);
+#endif
 clib_error_t *ikev2_initiate_rekey_child_sa (vlib_main_t * vm, u32 ispi);
 
 /* ikev2_format.c */

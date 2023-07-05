@@ -25,6 +25,7 @@
  *   - Improved search for child sa inside ikev2_sa_get_child by checking both rspi and ispi.
  *   - Allow rekeying initiated by Strongswan responder.
  *   - Reinitiate connection after receiving DELETE request.
+ *   - Use initiator spi value in DELETE response sent to responder.
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - New parameter for ipip_add_tunnel() API - GW - to accommodate path selection policy for peer
  *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
@@ -38,6 +39,7 @@
  *     length is needed in systems where packet reordering is expected due to
  *     features like QoS. A low window length can lead to the wrong dropping of
  *     out-of-order packets that are outside the window as replayed packets.
+ *   - Phase 1 lifetime (ike_lifetime) timer support.
 */
 
 #include <vlib/vlib.h>
@@ -1407,6 +1409,16 @@ ikev2_process_informational_req (vlib_main_t * vm,
       else if (payload == IKEV2_PAYLOAD_DELETE)	/* 42 */
 	{
 	  sa->del = ikev2_parse_delete_payload (ikep, current_length);
+#ifdef FLEXIWAN_FIX
+    if (sa->childs)
+        {
+          ikev2_child_sa_t *child_sa = &sa->childs[0];
+          if (child_sa->i_proposals)
+          {
+            sa->del[0].spi = child_sa->i_proposals[0].spi;
+          }
+        }
+#endif
 	}
       else if (payload == IKEV2_PAYLOAD_VENDOR)	/* 43 */
 	{
@@ -2204,6 +2216,13 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
 
   if (sa->is_initiator && sa->profile_index != ~0)
     p = pool_elt_at_index (km->profiles, sa->profile_index);
+
+#ifdef FLEXIWAN_FEATURE
+  if (p && p->ike_lifetime)
+    {
+      sa->time_to_expiration = vlib_time_now (vm) + p->ike_lifetime;
+    }
+#endif
 
   if (p && p->lifetime)
     {
@@ -3856,10 +3875,17 @@ ikev2_unregister_udp_port (ikev2_profile_t * p)
   p->ipsec_over_udp_port = IPSEC_UDP_PORT_NONE;
 }
 
+#ifdef FLEXIWAN_FEATURE
+static void
+ikev2_initiate_delete_ike_sa_internal (vlib_main_t * vm,
+				       ikev2_main_per_thread_data_t * tkm,
+				       ikev2_sa_t * sa, u8 send_notification, u8 cleanup)
+#else
 static void
 ikev2_initiate_delete_ike_sa_internal (vlib_main_t * vm,
 				       ikev2_main_per_thread_data_t * tkm,
 				       ikev2_sa_t * sa, u8 send_notification)
+#endif
 {
   ikev2_main_t *km = &ikev2_main;
   ip_address_t *src, *dst;
@@ -3914,6 +3940,12 @@ ikev2_initiate_delete_ike_sa_internal (vlib_main_t * vm,
     }
 
 delete_sa:
+#ifdef FLEXIWAN_FEATURE
+  if (!cleanup)
+    {
+      return;
+    }
+#endif
   /* delete local SA */
   vec_foreach (c, sa->childs)
     ikev2_delete_tunnel_interface (km->vnet_main, sa, c);
@@ -3965,7 +3997,11 @@ ikev2_cleanup_profile_sessions (ikev2_main_t * km, ikev2_profile_t * p)
     vec_foreach (sai, del_sai)
     {
       sa = pool_elt_at_index (tkm->sas, sai[0]);
+#ifdef FLEXIWAN_FEATURE
+      ikev2_initiate_delete_ike_sa_internal (km->vlib_main, tkm, sa, 1, 1);
+#else
       ikev2_initiate_delete_ike_sa_internal (km->vlib_main, tkm, sa, 1);
+#endif
     }
 
     vec_reset_length (del_sai);
@@ -4483,6 +4519,27 @@ ikev2_set_profile_sa_lifetime (vlib_main_t * vm, u8 * name,
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE
+clib_error_t *
+ikev2_set_profile_ike_lifetime (vlib_main_t * vm, u8 * name,
+			       u64 lifetime)
+{
+  ikev2_profile_t *p;
+  clib_error_t *r;
+
+  p = ikev2_profile_index_by_name (name);
+
+  if (!p)
+    {
+      r = clib_error_return (0, "unknown profile %v", name);
+      return r;
+    }
+
+  p->ike_lifetime = lifetime;
+  return 0;
+}
+#endif
+
 static int
 ikev2_get_if_address (u32 sw_if_index, ip_address_family_t af,
 		      ip_address_t * out_addr)
@@ -4613,6 +4670,10 @@ ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name)
   sa.is_tun_itf_set = 1;
   sa.initial_contact = 1;
   sa.dst_port = IKEV2_PORT;
+#ifdef FLEXIWAN_FEATURE
+  sa.time_to_expiration = 0;
+  sa.is_expired = 0;
+#endif
 
   ikev2_generate_sa_error_t rc = ikev2_generate_sa_init_data (&sa);
   if (rc != IKEV2_GENERATE_SA_INIT_OK)
@@ -4822,8 +4883,13 @@ ikev2_initiate_delete_child_sa (vlib_main_t * vm, u32 ispi)
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE
+clib_error_t *
+ikev2_initiate_delete_ike_sa (vlib_main_t * vm, u64 ispi, u8 remote_only)
+#else
 clib_error_t *
 ikev2_initiate_delete_ike_sa (vlib_main_t * vm, u64 ispi)
+#endif
 {
   clib_error_t *r;
   ikev2_main_t *km = &ikev2_main;
@@ -4854,8 +4920,11 @@ ikev2_initiate_delete_ike_sa (vlib_main_t * vm, u64 ispi)
       r = clib_error_return (0, "IKE SA not found");
       return r;
     }
-
+#ifdef FLEXIWAN_FEATURE
+  ikev2_initiate_delete_ike_sa_internal (vm, ftkm, fsa, 1, !remote_only);
+#else
   ikev2_initiate_delete_ike_sa_internal (vm, ftkm, fsa, 1);
+#endif
   return 0;
 }
 
@@ -4971,7 +5040,11 @@ ikev2_sa_del (ikev2_profile_t * p, u32 sw_if_index)
 
     vec_foreach (sap, sa_vec)
     {
+#ifdef FLEXIWAN_FEATURE
+      ikev2_initiate_delete_ike_sa_internal (km->vlib_main, tkm, *sap, 0, 1);
+#else
       ikev2_initiate_delete_ike_sa_internal (km->vlib_main, tkm, *sap, 0);
+#endif
     }
     vec_reset_length (sa_vec);
   }
@@ -5453,6 +5526,10 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
       vlib_process_wait_for_event_or_clock (vm, 2);
       vlib_process_get_events (vm, NULL);
 
+#ifdef FLEXIWAN_FEATURE
+      f64 now = vlib_time_now (vm);
+#endif
+
       /* process ike child sas */
       ikev2_main_per_thread_data_t *tkm;
       vec_foreach (tkm, km->per_thread_data)
@@ -5464,6 +5541,15 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
         pool_foreach (sa, tkm->sas)  {
           ikev2_child_sa_t *c;
           u8 del_old_ids = 0;
+#ifdef FLEXIWAN_FEATURE
+          if (!sa->is_expired && sa->time_to_expiration && now > sa->time_to_expiration)
+          {
+            ikev2_initiate_delete_ike_sa (vm, sa->ispi, 1);
+            sa->is_expired = 1;
+            sa->time_to_expiration = 0;
+            continue;
+          }
+#endif
 #ifdef FLEXIWAN_FIX
           if (sa->state == IKEV2_STATE_AUTH_FAILED ||
               sa->state == IKEV2_STATE_NO_PROPOSAL_CHOSEN ||
