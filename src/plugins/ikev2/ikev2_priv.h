@@ -387,6 +387,9 @@ typedef struct
   u64 lifetime_maxdata;
   u32 lifetime_jitter;
   u32 handover;
+#ifdef FLEXIWAN_FEATURE
+  u64 ike_lifetime;  /* Phase 1 timeout */
+#endif
   u16 ipsec_over_udp_port;
 #ifdef FLEXIWAN_FEATURE
   fib_route_path_t gw;  /*The next hope to be used for IKE traffic - takes care of multi-WAN*/
@@ -514,6 +517,12 @@ typedef struct
   /* is NAT traversal mode */
   ikev2_natt_state_t natt_state;
   u8 keys_generated;
+
+#ifdef FLEXIWAN_FEATURE
+  /* lifetime data */
+  f64 time_to_expiration;
+  u8 is_expired;
+#endif
 } ikev2_sa_t;
 
 

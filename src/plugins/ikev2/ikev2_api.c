@@ -822,6 +822,37 @@ vl_api_ikev2_set_sa_lifetime_t_handler (vl_api_ikev2_set_sa_lifetime_t * mp)
   REPLY_MACRO (VL_API_IKEV2_SET_SA_LIFETIME_REPLY);
 }
 
+#ifdef FLEXIWAN_FEATURE
+static void
+vl_api_ikev2_set_ike_lifetime_t_handler (vl_api_ikev2_set_ike_lifetime_t * mp)
+{
+  vl_api_ikev2_set_ike_lifetime_reply_t *rmp;
+  int rv = 0;
+
+#if WITH_LIBSSL > 0
+  vlib_main_t *vm = vlib_get_main ();
+  clib_error_t *error;
+
+  u8 *tmp = format (0, "%s", mp->name);
+
+  error =
+    ikev2_set_profile_ike_lifetime (vm, tmp,
+				   clib_net_to_host_u64 (mp->lifetime));
+  vec_free (tmp);
+  if (error)
+    {
+      ikev2_log_error ("%U", format_clib_error, error);
+      clib_error_free (error);
+      rv = VNET_API_ERROR_UNSPECIFIED;
+    }
+#else
+  rv = VNET_API_ERROR_UNIMPLEMENTED;
+#endif
+
+  REPLY_MACRO (VL_API_IKEV2_SET_IKE_LIFETIME_REPLY);
+}
+#endif
+
 static void
   vl_api_ikev2_profile_set_ipsec_udp_port_t_handler
   (vl_api_ikev2_profile_set_ipsec_udp_port_t * mp)
@@ -942,7 +973,11 @@ vl_api_ikev2_initiate_del_ike_sa_t_handler (vl_api_ikev2_initiate_del_ike_sa_t
   vlib_main_t *vm = vlib_get_main ();
   clib_error_t *error;
 
+#ifdef FLEXIWAN_FEATURE
+  error = ikev2_initiate_delete_ike_sa (vm, mp->ispi, 0);
+#else
   error = ikev2_initiate_delete_ike_sa (vm, mp->ispi);
+#endif
   if (error)
     {
       ikev2_log_error ("%U", format_clib_error, error);
