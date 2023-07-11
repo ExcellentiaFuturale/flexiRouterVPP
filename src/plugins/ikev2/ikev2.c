@@ -2241,6 +2241,13 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
 	}
     }
 
+#ifdef FLEXIWAN_FEATURE
+  if (p && p->pfs)
+    {
+      sa->pfs = p->pfs;
+    }
+#endif
+
 #ifdef FLEXIWAN_FEATURE /* configurable_anti_replay_window_len */
   if (!p && (sa->profile_index != ~0))
     {
@@ -2601,6 +2608,12 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
 	  *(u32 *) data = clib_host_to_net_u32 (notify.spi);
 
 	  ikev2_payload_add_sa (chain, proposals);
+#ifdef FLEXIWAN_FEATURE
+  if (sa->pfs)
+    {
+      ikev2_payload_add_ke (chain, sa->dh_group, sa->i_dh_data);
+    }
+#endif
 	  ikev2_payload_add_nonce (chain, sa->i_nonce);
 	  ikev2_payload_add_ts (chain, sa->childs[0].tsi, IKEV2_PAYLOAD_TSI);
 	  ikev2_payload_add_ts (chain, sa->childs[0].tsr, IKEV2_PAYLOAD_TSR);
@@ -4540,6 +4553,27 @@ ikev2_set_profile_ike_lifetime (vlib_main_t * vm, u8 * name,
 }
 #endif
 
+#ifdef FLEXIWAN_FEATURE
+clib_error_t *
+ikev2_set_profile_pfs (vlib_main_t * vm, u8 * name,
+			       bool enable)
+{
+  ikev2_profile_t *p;
+  clib_error_t *r;
+
+  p = ikev2_profile_index_by_name (name);
+
+  if (!p)
+    {
+      r = clib_error_return (0, "unknown profile %v", name);
+      return r;
+    }
+
+  p->pfs = enable;
+  return 0;
+}
+#endif
+
 static int
 ikev2_get_if_address (u32 sw_if_index, ip_address_family_t af,
 		      ip_address_t * out_addr)
@@ -4673,6 +4707,9 @@ ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name)
 #ifdef FLEXIWAN_FEATURE
   sa.time_to_expiration = 0;
   sa.is_expired = 0;
+#endif
+#ifdef FLEXIWAN_FEATURE
+  sa.pfs = false;
 #endif
 
   ikev2_generate_sa_error_t rc = ikev2_generate_sa_init_data (&sa);
@@ -4957,7 +4994,24 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   ikev2_rekey_t *rekey;
   vec_reset_length (sa->rekey);
   vec_add2 (sa->rekey, rekey, 1);
+#ifdef FLEXIWAN_FEATURE
+  ikev2_sa_proposal_t *proposals = NULL;
+  vec_add1 (proposals, csa->i_proposals[0]);
+  proposals[0].transforms = vec_dup(proposals[0].transforms);
+  ikev2_sa_transform_t *tr = NULL;
+  vec_foreach (tr, proposals[0].transforms)
+  {
+    tr->attrs = vec_dup(tr->attrs);
+  }
+  if (sa->pfs)
+  {
+    tr = ikev2_sa_get_td_for_type (sa->r_proposals, IKEV2_TRANSFORM_TYPE_DH);
+    if (tr)
+      vec_add1 (proposals[0].transforms, *tr);
+  }
+#else
   ikev2_sa_proposal_t *proposals = vec_dup (csa->i_proposals);
+#endif
 
   /*need new ispi */
   RAND_bytes ((u8 *) & proposals[0].spi, sizeof (proposals[0].spi));
@@ -4971,7 +5025,11 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
     len = ikev2_insert_non_esp_marker (ike0, len);
   ikev2_send_ike (vm, &sa->iaddr, &sa->raddr, bi0, len,
 		  ikev2_get_port (sa), ikev2_get_port (sa), sa->sw_if_index, sa);
+#ifdef FLEXIWAN_FEATURE
+  ikev2_sa_free_proposal_vector (&proposals);
+#else
   vec_free (proposals);
+#endif
 }
 
 clib_error_t *
