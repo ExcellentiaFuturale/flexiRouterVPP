@@ -390,6 +390,9 @@ typedef struct
 #ifdef FLEXIWAN_FEATURE
   u64 ike_lifetime;  /* Phase 1 timeout */
 #endif
+#ifdef FLEXIWAN_FEATURE
+  bool pfs;
+#endif
   u16 ipsec_over_udp_port;
 #ifdef FLEXIWAN_FEATURE
   fib_route_path_t gw;  /*The next hope to be used for IKE traffic - takes care of multi-WAN*/
@@ -522,6 +525,10 @@ typedef struct
   /* lifetime data */
   f64 time_to_expiration;
   u8 is_expired;
+#endif
+
+#ifdef FLEXIWAN_FEATURE
+  bool pfs;
 #endif
 } ikev2_sa_t;
 

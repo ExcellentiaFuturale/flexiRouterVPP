@@ -853,6 +853,36 @@ vl_api_ikev2_set_ike_lifetime_t_handler (vl_api_ikev2_set_ike_lifetime_t * mp)
 }
 #endif
 
+#ifdef FLEXIWAN_FEATURE
+static void
+vl_api_ikev2_set_pfs_t_handler (vl_api_ikev2_set_pfs_t * mp)
+{
+  vl_api_ikev2_set_pfs_reply_t *rmp;
+  int rv = 0;
+
+#if WITH_LIBSSL > 0
+  vlib_main_t *vm = vlib_get_main ();
+  clib_error_t *error;
+
+  u8 *tmp = format (0, "%s", mp->name);
+
+  error =
+    ikev2_set_profile_pfs (vm, tmp, mp->enable);
+  vec_free (tmp);
+  if (error)
+    {
+      ikev2_log_error ("%U", format_clib_error, error);
+      clib_error_free (error);
+      rv = VNET_API_ERROR_UNSPECIFIED;
+    }
+#else
+  rv = VNET_API_ERROR_UNIMPLEMENTED;
+#endif
+
+  REPLY_MACRO (VL_API_IKEV2_SET_PFS_REPLY);
+}
+#endif
+
 static void
   vl_api_ikev2_profile_set_ipsec_udp_port_t_handler
   (vl_api_ikev2_profile_set_ipsec_udp_port_t * mp)

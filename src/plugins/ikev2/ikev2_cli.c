@@ -168,6 +168,13 @@ format_ikev2_sa (u8 * s, va_list * va)
   }
 #endif /* FLEXIWAN_FEATURE */
 
+#ifdef FLEXIWAN_FEATURE
+    if (sa->pfs)
+      format(s, "\n pfs: on");
+    else
+      format(s, "\n pfs: off");
+#endif
+
   s = format (s, "\n%U", format_white_space, indent);
 
   tr = ikev2_sa_get_td_for_type (sa->r_proposals, IKEV2_TRANSFORM_TYPE_ENCR);
@@ -571,6 +578,16 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
 	  goto done;
 	}
 #endif
+#ifdef FLEXIWAN_FEATURE
+      else if (unformat (line_input, "set %U pfs %s",
+			 unformat_ikev2_token, &name, &data))
+	{
+    bool enable = !strcmp ((char *) data, "on");
+	  r =
+	    ikev2_set_profile_pfs (vm, name, enable);
+	  goto done;
+	}
+#endif
       else if (unformat (line_input, "set %U udp-encap",
 			 unformat_ikev2_token, &name))
 	{
@@ -657,6 +674,9 @@ VLIB_CLI_COMMAND (ikev2_profile_add_del_command, static) = {
     "ikev2 profile set <id> sa-lifetime <seconds> <jitter> <handover> <max bytes>\n"
 #ifdef FLEXIWAN_FEATURE
     "ikev2 profile set <id> ike-lifetime <seconds>\n"
+#endif
+#ifdef FLEXIWAN_FEATURE
+    "ikev2 profile set <id> pfs [on|off]\n"
 #endif
     "ikev2 profile set <id> disable natt\n",
     .function = ikev2_profile_add_del_command_fn,
@@ -757,6 +777,13 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
 
 #ifdef FLEXIWAN_FEATURE
     vlib_cli_output(vm, "  ike-lifetime %d", p->ike_lifetime);
+#endif
+
+#ifdef FLEXIWAN_FEATURE
+    if (p->pfs)
+      vlib_cli_output(vm, "  pfs on");
+    else
+      vlib_cli_output(vm, "  pfs off");
 #endif
 
 #ifdef FLEXIWAN_FEATURE
