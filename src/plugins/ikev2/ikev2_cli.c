@@ -170,9 +170,9 @@ format_ikev2_sa (u8 * s, va_list * va)
 
 #ifdef FLEXIWAN_FEATURE
     if (sa->pfs)
-      format(s, "\n pfs: on");
+      s = format(s, "\n pfs: on");
     else
-      format(s, "\n pfs: off");
+      s = format(s, "\n pfs: off");
 #endif
 
   s = format (s, "\n%U", format_white_space, indent);
