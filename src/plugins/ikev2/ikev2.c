@@ -2677,6 +2677,7 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
       clib_memcpy_fast (ike->payload, chain->data, vec_len (chain->data));
 
       /* store whole IKE payload - needed for PSK auth */
+      clib_warning("store whole IKE payload - needed for retransmit");
       vec_reset_length (sa->last_sa_init_res_packet_data);
       vec_add (sa->last_sa_init_res_packet_data, ike, tlen);
     }
@@ -2740,6 +2741,7 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
 			    sizeof (*ike), integ, tr_integ->key_trunc);
 	}
 
+      clib_warning("store whole IKE payload - needed for retransmit");
       /* store whole IKE payload - needed for retransmit */
       vec_reset_length (sa->last_res_packet_data);
       vec_add (sa->last_res_packet_data, ike, tlen);
@@ -3183,6 +3185,7 @@ ikev2_node_internal (vlib_main_t * vm,
 			  ike0->flags = IKEV2_HDR_FLAG_INITIATOR;
 			  ike0->msgid =
 			    clib_net_to_host_u32 (sai->last_init_msg_id);
+        clib_warning("sai->last_init_msg_id %u", sai->last_init_msg_id);
 			  sa0->last_init_msg_id = sai->last_init_msg_id + 1;
 			  slen =
 			    ikev2_generate_message (b0, sa0, ike0, 0, udp0);
@@ -3727,7 +3730,15 @@ ikev2_send_ike (vlib_main_t * vm, ip_address_t * src, ip_address_t * dst,
   vlib_frame_t *f;
   u32 *to_next;
 
+  clib_warning("sa->last_init_msg_id %u", sa->last_init_msg_id);
+
   b0 = vlib_get_buffer (vm, bi0);
+  ike_header_t *ike0 = vlib_buffer_get_current (b0);
+  ike0 =
+	    (ike_header_t *) ((u8 *) ike0 + sizeof (ikev2_non_esp_marker));
+  clib_warning("ike0->msgid %u", clib_net_to_host_u32(ike0->msgid));
+  clib_warning("ike0->exchange %u", ike0->exchange);
+
   vlib_buffer_advance (b0, -sizeof (udp_header_t));
   udp0 = vlib_buffer_get_current (b0);
   udp0->dst_port = clib_host_to_net_u16 (dst_port);
@@ -3805,6 +3816,7 @@ ikev2_send_ike (vlib_main_t * vm, ip_address_t * src, ip_address_t * dst,
   to_next = vlib_frame_vector_args (f);
   to_next[0] = bi0;
   f->n_vectors = 1;
+  clib_warning("next_index %u", next_index);
   vlib_put_frame_to_node (vm, next_index, f);
 
 }
@@ -3929,6 +3941,7 @@ ikev2_initiate_delete_ike_sa_internal (vlib_main_t * vm,
       ike0->rspi = clib_host_to_net_u64 (sa->rspi);
       ike0->flags = 0;
       ike0->msgid = clib_host_to_net_u32 (sa->last_init_msg_id);
+      clib_warning("sa->last_init_msg_id %u", sa->last_init_msg_id);
       sa->last_init_msg_id += 1;
       len = ikev2_generate_message (b0, sa, ike0, 0, 0);
       if (~0 == len)
@@ -4783,6 +4796,7 @@ ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name)
   ike0->ispi = clib_host_to_net_u64 (sa.ispi);
   ike0->rspi = 0;
   ike0->msgid = 0;
+  clib_warning("sa.last_init_msg_id %u", sa.last_init_msg_id);
   sa.last_init_msg_id += 1;
 
   /* store whole IKE payload - needed for PSK auth */
@@ -4861,6 +4875,7 @@ ikev2_delete_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   sa->del->protocol_id = IKEV2_PROTOCOL_ESP;
   sa->del->spi = csa->i_proposals->spi;
   ike0->msgid = clib_host_to_net_u32 (sa->last_init_msg_id);
+  clib_warning("sa->last_init_msg_id %u", sa->last_init_msg_id);
   sa->last_init_msg_id += 1;
   len = ikev2_generate_message (b0, sa, ike0, 0, 0);
   if (~0 == len)
@@ -4975,6 +4990,8 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   u32 bi0 = 0;
   int len;
 
+  sa->wait_on_rekey = true;
+
   bi0 = ikev2_get_new_ike_header_buff (vm, &b0);
   if (!bi0)
     {
@@ -4989,7 +5006,9 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   ike0->ispi = clib_host_to_net_u64 (sa->ispi);
   ike0->rspi = clib_host_to_net_u64 (sa->rspi);
   ike0->msgid = clib_host_to_net_u32 (sa->last_init_msg_id);
+  clib_warning("ike0->msgid %u", clib_net_to_host_u32(ike0->msgid));
   sa->last_init_msg_id += 1;
+  clib_warning("sa->last_init_msg_id %u", sa->last_init_msg_id);
 
   ikev2_rekey_t *rekey;
   vec_reset_length (sa->rekey);
@@ -5023,6 +5042,7 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
 
   if (ikev2_natt_active (sa))
     len = ikev2_insert_non_esp_marker (ike0, len);
+  clib_warning("ikev2_send_ike");
   ikev2_send_ike (vm, &sa->iaddr, &sa->raddr, bi0, len,
 		  ikev2_get_port (sa), ikev2_get_port (sa), sa->sw_if_index, sa);
 #ifdef FLEXIWAN_FEATURE
@@ -5030,6 +5050,8 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
 #else
   vec_free (proposals);
 #endif
+
+  sa->wait_on_rekey = false;
 }
 
 clib_error_t *
@@ -5514,14 +5536,19 @@ ikev2_send_informational_request (ikev2_sa_t * sa)
   ike0->ispi = clib_host_to_net_u64 (sa->ispi);
   ike0->rspi = clib_host_to_net_u64 (sa->rspi);
   ike0->msgid = clib_host_to_net_u32 (sa->last_init_msg_id);
+  clib_warning("ike0->msgid %u", clib_net_to_host_u32(ike0->msgid));
   ike0->flags = 0;
   sa->last_init_msg_id += 1;
+  clib_warning("sa->last_init_msg_id %u", sa->last_init_msg_id);
   len = ikev2_generate_message (b0, sa, ike0, 0, 0);
   if (~0 == len)
     return;
 
   if (ikev2_natt_active (sa))
+  {
+    clib_warning("insert non esp marker");
     len = ikev2_insert_non_esp_marker (ike0, len);
+  }
 
   if (sa->is_initiator)
     {
@@ -5535,6 +5562,7 @@ ikev2_send_informational_request (ikev2_sa_t * sa)
     }
 
   dp = sa->dst_port ? sa->dst_port : ikev2_get_port (sa);
+  clib_warning("ikev2_send_ike");
   ikev2_send_ike (km->vlib_main, src, dst, bi0, len, ikev2_get_port (sa), dp,
 		  sa->sw_if_index, sa);
 }
@@ -5564,7 +5592,8 @@ ikev2_mngr_process_responder_sas (ikev2_sa_t * sa)
     {
       sa->liveness_retries++;
       sa->liveness_period_check = now + km->liveness_period;
-      ikev2_send_informational_request (sa);
+      if (!sa->wait_on_rekey)
+        ikev2_send_informational_request (sa);
     }
   return 0;
 }

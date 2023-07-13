@@ -530,6 +530,10 @@ typedef struct
 #ifdef FLEXIWAN_FEATURE
   bool pfs;
 #endif
+
+#ifdef FLEXIWAN_FEATURE
+  bool wait_on_rekey;
+#endif
 } ikev2_sa_t;
 
 
