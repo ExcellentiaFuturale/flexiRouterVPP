@@ -40,6 +40,7 @@
  *     features like QoS. A low window length can lead to the wrong dropping of
  *     out-of-order packets that are outside the window as replayed packets.
  *   - Phase 1 lifetime (ike_lifetime) timer support.
+ *   - Send DELETE after rekeying phase 2 to release old Child SA (to be compatible with Strongswan)
 */
 
 #include <vlib/vlib.h>
@@ -74,6 +75,12 @@ ikev2_main_t ikev2_main;
 static int ikev2_delete_tunnel_interface (vnet_main_t * vnm,
 					  ikev2_sa_t * sa,
 					  ikev2_child_sa_t * child);
+
+#ifdef FLEXIWAN_FEATURE
+static void
+ikev2_delete_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
+				ikev2_child_sa_t * csa, u8 cleanup);
+#endif
 
 #define ikev2_set_state(sa, v, ...) do { \
     (sa)->state = v; \
@@ -1409,16 +1416,6 @@ ikev2_process_informational_req (vlib_main_t * vm,
       else if (payload == IKEV2_PAYLOAD_DELETE)	/* 42 */
 	{
 	  sa->del = ikev2_parse_delete_payload (ikep, current_length);
-#ifdef FLEXIWAN_FIX
-    if (sa->childs)
-        {
-          ikev2_child_sa_t *child_sa = &sa->childs[0];
-          if (child_sa->i_proposals)
-          {
-            sa->del[0].spi = child_sa->i_proposals[0].spi;
-          }
-        }
-#endif
 	}
       else if (payload == IKEV2_PAYLOAD_VENDOR)	/* 43 */
 	{
@@ -3299,10 +3296,15 @@ ikev2_node_internal (vlib_main_t * vm,
 		{
 		  if (sa0->del[0].protocol_id != IKEV2_PROTOCOL_IKE)
 		    {
+#ifdef FLEXIWAN_FEATURE
+          ikev2_child_sa_t *ch_sa = NULL;
+#endif
 		      ikev2_delete_t *d, *tmp, *resp = 0;
 		      vec_foreach (d, sa0->del)
 		      {
+#ifndef FLEXIWAN_FEATURE
 			ikev2_child_sa_t *ch_sa;
+#endif
 			ch_sa = ikev2_sa_get_child (sa0, d->spi,
 						    d->protocol_id,
 						    !sa0->is_initiator);
@@ -3319,7 +3321,11 @@ ikev2_node_internal (vlib_main_t * vm,
 			    ikev2_sa_del_child_sa (sa0, ch_sa);
 			  }
 		      }
+#ifdef FLEXIWAN_FEATURE
+		      if (!sa0->is_initiator || !ch_sa)
+#else
 		      if (!sa0->is_initiator)
+#endif
 			{
 			  vec_free (sa0->del);
 			  sa0->del = resp;
@@ -3371,8 +3377,18 @@ ikev2_node_internal (vlib_main_t * vm,
 		{
 		  if (sa0->rekey[0].protocol_id != IKEV2_PROTOCOL_IKE)
 		    {
-		      if (sa0->childs)
-			ikev2_sa_free_all_child_sa (&sa0->childs);
+#ifdef FLEXIWAN_FEATURE
+          /*  Send DELETE after rekeying phase 2 to release old Child SA */
+          {
+            ikev2_child_sa_t *c;
+            vec_foreach (c, sa0->childs)
+	            ikev2_delete_child_sa_internal (vm, sa0, c, 0);
+			      ikev2_sa_free_all_child_sa (&sa0->childs);
+          }
+#else
+                     if (sa0->childs)
+                       ikev2_sa_free_all_child_sa (&sa0->childs);
+#endif
 		      ikev2_child_sa_t *child;
 		      vec_add2 (sa0->childs, child, 1);
 		      clib_memset (child, 0, sizeof (*child));
@@ -4834,9 +4850,15 @@ ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name)
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE
+static void
+ikev2_delete_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
+				ikev2_child_sa_t * csa, u8 cleanup)
+#else
 static void
 ikev2_delete_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
 				ikev2_child_sa_t * csa)
+#endif
 {
   /* Create the Initiator notification for child SA removal */
   ikev2_main_t *km = &ikev2_main;
@@ -4870,6 +4892,13 @@ ikev2_delete_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
     len = ikev2_insert_non_esp_marker (ike0, len);
   ikev2_send_ike (vm, &sa->iaddr, &sa->raddr, bi0, len,
 		  ikev2_get_port (sa), sa->dst_port, sa->sw_if_index, sa);
+
+#ifdef FLEXIWAN_FEATURE
+  if (!cleanup)
+    {
+      return;
+    }
+#endif
 
   /* delete local child SA */
   ikev2_delete_tunnel_interface (km->vnet_main, sa, csa);
@@ -4914,7 +4943,11 @@ ikev2_initiate_delete_child_sa (vlib_main_t * vm, u32 ispi)
     }
   else
     {
+#ifdef FLEXIWAN_FEATURE
+      ikev2_delete_child_sa_internal (vm, fsa, fchild, 1);
+#else
       ikev2_delete_child_sa_internal (vm, fsa, fchild);
+#endif
     }
 
   return 0;
@@ -5263,7 +5296,11 @@ ikev2_mngr_process_child_sa (ikev2_sa_t * sa, ikev2_child_sa_t * csa,
       else
 	{
 	  csa->time_to_expiration = 0;
+#ifdef FLEXIWAN_FEATURE
+	  ikev2_delete_child_sa_internal (vm, sa, csa, 1);
+#else
 	  ikev2_delete_child_sa_internal (vm, sa, csa);
+#endif
 	  res |= 1;
 	  return res;
 	}
