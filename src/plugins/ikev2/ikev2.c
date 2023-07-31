@@ -2217,7 +2217,8 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE
   if (p && p->ike_lifetime)
     {
-      sa->time_to_expiration = vlib_time_now (vm) + p->ike_lifetime;
+      if (!sa->time_to_expiration)
+        sa->time_to_expiration = vlib_time_now (vm) + p->ike_lifetime;
     }
 #endif
 
