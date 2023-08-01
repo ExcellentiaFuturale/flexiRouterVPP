@@ -2567,10 +2567,6 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
 	    }
 	  vec_free (sa->del);
 	  sa->del = 0;
-#ifdef FLEXIWAN_FIX
-    vlib_node_t *node = vlib_get_node_by_name (km->vlib_main, (u8 *)"ikev2-manager-process");
-    vlib_process_signal_event_mt (km->vlib_main, node->index, 0, ~0);
-#endif /* FLEXIWAN_FIX */
 	}
       /* received N(AUTHENTICATION_FAILED) */
       else if (sa->state == IKEV2_STATE_AUTH_FAILED)
@@ -3344,6 +3340,10 @@ ikev2_node_internal (vlib_main_t * vm,
 						    !sa0->is_initiator);
 			if (ch_sa)
 			  {
+#ifdef FLEXIWAN_FIX
+          /* Response DELETE has to contain responder spi */
+          d->spi = ch_sa->r_proposals[0].spi;
+#endif
 			    ikev2_delete_tunnel_interface (km->vnet_main,
 							   sa0, ch_sa);
 			    if (!sa0->is_initiator)
@@ -3406,7 +3406,6 @@ ikev2_node_internal (vlib_main_t * vm,
 		  slen = ~0;
 		  goto dispatch0;
 		}
-
 	      if (sa0->rekey)
 		{
 		  if (sa0->rekey[0].protocol_id != IKEV2_PROTOCOL_IKE)
