@@ -354,6 +354,8 @@ typedef struct
 
 typedef struct
 {
+  u16 notify_type;
+  u8 kex;
   u8 protocol_id;
   u32 spi;
   u32 ispi;
@@ -484,6 +486,8 @@ typedef struct
 
   /* pending rekeyings */
   ikev2_rekey_t *rekey;
+  
+  ikev2_rekey_t *new_child;
 
   /* packet data */
   u8 *last_sa_init_req_packet_data;
