@@ -521,12 +521,21 @@ ikev2_generate_sa_init_data (ikev2_sa_t * sa)
   return IKEV2_GENERATE_SA_INIT_OK;
 }
 
+#ifdef FLEXIWAN_FEATURE
+static void
+ikev2_complete_sa_data (ikev2_sa_t * sa, ikev2_sa_t * sai, bool move_data)
+#else
 static void
 ikev2_complete_sa_data (ikev2_sa_t * sa, ikev2_sa_t * sai)
+#endif
 {
   ikev2_sa_transform_t *t = 0, *t2;
   ikev2_main_t *km = &ikev2_main;
 
+#ifdef FLEXIWAN_FEATURE
+if(move_data)
+{
+#endif
   /*move some data to the new SA */
 #define _(A) ({void* __tmp__ = (A); (A) = 0; __tmp__;})
   sa->i_nonce = _(sai->i_nonce);
@@ -557,6 +566,9 @@ ikev2_complete_sa_data (ikev2_sa_t * sa, ikev2_sa_t * sai)
   sa->sw_if_index = sai->sw_if_index;
 #undef _
 
+#ifdef FLEXIWAN_FEATURE
+}
+#endif
 
   if (sa->dh_group == IKEV2_TRANSFORM_DH_TYPE_NONE)
     {
@@ -673,8 +685,13 @@ ikev2_calc_keys (ikev2_sa_t * sa)
   sa->keys_generated = 1;
 }
 
+#ifdef FLEXIWAN_FEATURE
+static void
+ikev2_calc_child_keys (ikev2_sa_t * sa, ikev2_child_sa_t * child, u8 kex)
+#else
 static void
 ikev2_calc_child_keys (ikev2_sa_t * sa, ikev2_child_sa_t * child)
+#endif
 {
   u8 *s = 0;
   u16 integ_key_len = 0;
@@ -693,6 +710,10 @@ ikev2_calc_child_keys (ikev2_sa_t * sa, ikev2_child_sa_t * child)
   else
     salt_len = sizeof (u32);
 
+#ifdef FLEXIWAN_FEATURE
+  if (kex)
+    vec_append (s, sa->dh_shared_key);
+#endif
   vec_append (s, sa->i_nonce);
   vec_append (s, sa->r_nonce);
   /* calculate PRFplus */
@@ -1481,6 +1502,12 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
 	{
 	  proposal = ikev2_parse_sa_payload (ikep, current_length);
 	}
+#ifdef FLEXIWAN_FEATURE
+      else if (payload == IKEV2_PAYLOAD_KE)
+	{
+	  ikev2_parse_ke_payload (ikep, current_length, sa, &sa->r_dh_data);
+	}
+#endif
       else if (payload == IKEV2_PAYLOAD_NOTIFY)
 	{
 	  n = ikev2_parse_notify_payload (ikep, current_length);
@@ -2033,11 +2060,19 @@ err0:
   vec_free (sas_in);
 }
 
+#ifdef FLEXIWAN_FEATURE
+static int
+ikev2_create_tunnel_interface (vlib_main_t * vm,
+			       ikev2_sa_t * sa,
+			       ikev2_child_sa_t * child, u32 sa_index,
+			       u32 child_index, u8 is_rekey, u8 kex)
+#else
 static int
 ikev2_create_tunnel_interface (vlib_main_t * vm,
 			       ikev2_sa_t * sa,
 			       ikev2_child_sa_t * child, u32 sa_index,
 			       u32 child_index, u8 is_rekey)
+#endif
 {
   u32 thread_index = vlib_get_thread_index ();
   ikev2_main_t *km = &ikev2_main;
@@ -2180,7 +2215,12 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
     }
 
   a.integ_type = integ_type;
+
+#ifdef FLEXIWAN_FEATURE
+  ikev2_calc_child_keys (sa, child, kex);
+#else
   ikev2_calc_child_keys (sa, child);
+#endif
 
   if (sa->is_initiator)
     {
@@ -3215,7 +3255,11 @@ ikev2_node_internal (vlib_main_t * vm,
 		      if (clib_atomic_bool_cmp_and_swap
 			  (&sai->init_response_received, 0, 1))
 			{
+#ifdef FLEXIWAN_FEATURE
+			  ikev2_complete_sa_data (sa0, sai, 1);
+#else
 			  ikev2_complete_sa_data (sa0, sai);
+#endif
 			  ikev2_calc_keys (sa0);
 			  ikev2_sa_auth_init (sa0);
 			  ike0->flags = IKEV2_HDR_FLAG_INITIATOR;
@@ -3292,9 +3336,15 @@ ikev2_node_internal (vlib_main_t * vm,
 		  ikev2_initial_contact_cleanup (ptd, sa0);
 		  ikev2_sa_match_ts (sa0);
 		  if (sa0->state != IKEV2_STATE_TS_UNACCEPTABLE)
+#ifdef FLEXIWAN_FEATURE
+		    ikev2_create_tunnel_interface (vm, sa0,
+						   &sa0->childs[0],
+						   p[0], 0, 0, 0);
+#else
 		    ikev2_create_tunnel_interface (vm, sa0,
 						   &sa0->childs[0],
 						   p[0], 0, 0);
+#endif
 		}
 
 	      if (sa0->is_initiator)
@@ -3464,8 +3514,19 @@ ikev2_node_internal (vlib_main_t * vm,
 		      child->i_proposals = sa0->rekey[0].i_proposal;
 		      child->tsi = sa0->rekey[0].tsi;
 		      child->tsr = sa0->rekey[0].tsr;
+
+#ifdef FLEXIWAN_FEATURE
+          if (sa0->pfs)
+          {
+            ikev2_complete_sa_data(sa0, NULL, 0);
+          }
+
+		      ikev2_create_tunnel_interface (vm, sa0, child, p[0],
+						     child - sa0->childs, 1, sa0->pfs);
+#else
 		      ikev2_create_tunnel_interface (vm, sa0, child, p[0],
 						     child - sa0->childs, 1);
+#endif
 		    }
 		  if (ike_hdr_is_response (ike0))
 		    {
@@ -5165,7 +5226,15 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   {
     tr = ikev2_sa_get_td_for_type (sa->r_proposals, IKEV2_TRANSFORM_TYPE_DH);
     if (tr)
+    {
       vec_add1 (proposals[0].transforms, *tr);
+      vec_free (sa->dh_shared_key);
+      vec_free (sa->dh_private_key);
+      vec_free (sa->r_dh_data);
+      vec_free (sa->i_dh_data);
+
+      ikev2_generate_dh (sa, tr);
+    }
   }
 #else
   ikev2_sa_proposal_t *proposals = vec_dup (csa->i_proposals);
