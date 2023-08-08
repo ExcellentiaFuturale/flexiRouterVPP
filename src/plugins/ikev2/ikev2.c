@@ -5793,7 +5793,9 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
         pool_foreach (sa, tkm->sas)  {
           ikev2_child_sa_t *c;
           u8 del_old_ids = 0;
-
+#ifdef FLEXIWAN_FIX
+          u32 old_last_init_msg_id = sa->last_init_msg_id;
+#endif
           if (!sa->is_expired && sa->time_to_expiration && now > sa->time_to_expiration)
           {
             ikev2_initiate_delete_ike_sa (vm, sa->ispi, 1);
@@ -5824,7 +5826,10 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
 
             vec_foreach (c, sa->childs)
               ikev2_mngr_process_child_sa(sa, c, del_old_ids);
-
+#ifdef FLEXIWAN_FIX /* Do not send keep alive if another message was already sent */
+            if (old_last_init_msg_id < sa->last_init_msg_id)
+              continue;
+#endif
             if (!km->dpd_disabled && ikev2_mngr_process_responder_sas (sa)) {
               ikev2_set_state (sa, IKEV2_STATE_DELETED);
             }
