@@ -5185,7 +5185,10 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   }
   if (sa->pfs)
   {
-    tr = ikev2_sa_get_td_for_type (sa->r_proposals, IKEV2_TRANSFORM_TYPE_DH);
+    ikev2_sa_transform_t tr_dh_group;
+    tr_dh_group.type = IKEV2_TRANSFORM_TYPE_DH;
+    tr_dh_group.transform_id = IKEV2_TRANSFORM_DH_TYPE_MODP_2048;
+    tr = ikev2_find_transform_data (&tr_dh_group);
     if (tr)
     {
       vec_add1 (proposals[0].transforms, *tr);
