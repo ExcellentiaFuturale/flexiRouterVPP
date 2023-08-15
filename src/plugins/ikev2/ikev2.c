@@ -2255,11 +2255,7 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
     p = pool_elt_at_index (km->profiles, sa->profile_index);
 
 #ifdef FLEXIWAN_FEATURE
-  if (p && p->ike_lifetime)
-    {
-      if (!sa->time_to_expiration)
-        sa->time_to_expiration = vlib_time_now (vm) + p->ike_lifetime;
-    }
+  u32 child_inc = 0;
 #endif
 
   if (p && p->lifetime)
@@ -2275,9 +2271,26 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
 	  u32 rnd = (u32) (vlib_time_now (vm) * 1e6);
 	  rnd = random_u32 (&rnd);
 
-	  child->time_to_expiration += 1 + (rnd % p->lifetime_jitter);
+#ifdef FLEXIWAN_FEATURE
+    child_inc = 1 + (rnd % p->lifetime_jitter);
+	  child->time_to_expiration += child_inc;
+#else
+	  child->time_to_expiration += 1 + (rnd % p->lifetime_jitter);    
+#endif
 	}
     }
+
+#ifdef FLEXIWAN_FEATURE
+  if (p && p->ike_lifetime)
+    {
+      if (!sa->time_to_expiration)
+      {
+        sa->time_to_expiration = vlib_time_now (vm) + p->ike_lifetime;
+        if (p->ike_lifetime % p->lifetime == 0)
+          sa->time_to_expiration += 10 + child_inc;
+      }
+    }
+#endif
 
 #ifdef FLEXIWAN_FEATURE
   if (p && p->pfs)
