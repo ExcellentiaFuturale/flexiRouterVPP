@@ -488,6 +488,15 @@ vrrp_intf_vr_add_del (u8 is_add, u32 sw_if_index, u32 vr_index, u8 is_ipv6)
   return 0;
 }
 
+#ifdef FLEXIWAN_FEATURE
+void __attribute__ ((visibility ("default")))
+vrrp_set_cb_vr_ip_add_del(vrrp_add_del_vr_ip_ip4_cb ip4, vrrp_add_del_vr_ip_ip6_cb ip6)
+{
+  vrrp_main.cb_vr_ip_add_del_ip4 = ip4;
+  vrrp_main.cb_vr_ip_add_del_ip6 = ip6;
+}
+#endif /* FLEXIWAN_FEATURE */
+
 /* RFC 5798 section 8.3.2 says to take care not to configure more than
  * one VRRP router as the "IPvX address owner" of a VRID. Make sure that
  * all of the addresses configured for this VR are configured on the
@@ -610,10 +619,21 @@ static void
 vrrp_vr_addrs_add_del (vrrp_vr_t * vr, u8 is_add, ip46_address_t * vr_addrs)
 {
   ip46_address_t *vr_addr;
+  vrrp_main_t *vmp = &vrrp_main;
 
   vec_foreach (vr_addr, vr_addrs)
   {
     vrrp_vr_addr_add_del (vr, is_add, vr_addr);
+
+#ifdef FLEXIWAN_FIX
+    if (vrrp_vr_is_ipv6 (vr)) {
+      if (vmp->cb_vr_ip_add_del_ip6)
+        vmp->cb_vr_ip_add_del_ip6(is_add, &vr_addr->ip6);
+    } else {
+      if (vmp->cb_vr_ip_add_del_ip4)
+        vmp->cb_vr_ip_add_del_ip4(is_add, &vr_addr->ip4);
+    }
+#endif /* FLEXIWAN_FIX */
   }
 }
 
