@@ -26,6 +26,8 @@
  *   - Allow rekeying initiated by Strongswan responder.
  *   - Reinitiate connection after receiving DELETE request.
  *   - Use initiator spi value in DELETE response sent to responder.
+ *   - Port fix: ikev2: support variable-length nonces from 16 to 256 bytes.
+ *     https://github.com/FDio/vpp/commit/a427690b80003303d2cf6278f512a027ec430d6d
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - New parameter for ipip_add_tunnel() API - GW - to accommodate path selection policy for peer
  *     tunnels - to enforce tunnel traffic to be sent on labeled WAN interface, and not according
@@ -511,8 +513,13 @@ ikev2_generate_sa_init_data (ikev2_sa_t * sa)
       RAND_bytes ((u8 *) & sa->rspi, 8);
 
       /* generate nonce */
+#ifdef FLEXIWAN_FIX
+      sa->r_nonce = vec_new (u8, vec_len (sa->i_nonce));
+      RAND_bytes ((u8 *) sa->r_nonce, vec_len (sa->i_nonce));
+#else
       sa->r_nonce = vec_new (u8, IKEV2_NONCE_SIZE);
       RAND_bytes ((u8 *) sa->r_nonce, IKEV2_NONCE_SIZE);
+#endif /* FLEXIWAN_FIX */
     }
 
   /* generate dh keys */
@@ -797,6 +804,21 @@ ikev2_parse_ke_payload (const void *p, u32 rlen, ikev2_sa_t * sa,
   return 1;
 }
 
+#ifdef FLEXIWAN_FIX
+static int
+ikev2_parse_nonce_payload (const void *p, u32 rlen, const u8 **nonce)
+{
+  const ike_payload_header_t *ikep = p;
+  u16 plen = clib_net_to_host_u16 (ikep->length);
+  ASSERT (plen >= sizeof (*ikep) && plen <= rlen);
+  int len = plen - sizeof (*ikep);
+  ASSERT (len >= 16 && len <= 256);
+  if (PREDICT_FALSE (len < 16 || len > 256))
+    return 0;
+  *nonce = ikep->payload;
+  return len;
+}
+#else
 static int
 ikev2_parse_nonce_payload (const void *p, u32 rlen, u8 * nonce)
 {
@@ -806,6 +828,7 @@ ikev2_parse_nonce_payload (const void *p, u32 rlen, u8 * nonce)
   clib_memcpy_fast (nonce, ikep->payload, plen - sizeof (*ikep));
   return 1;
 }
+#endif /* FLEXIWAN_FIX */
 
 static int
 ikev2_check_payload_length (const ike_payload_header_t * ikep, int rlen,
@@ -824,7 +847,9 @@ ikev2_process_sa_init_req (vlib_main_t * vm,
 			   ikev2_sa_t * sa, ike_header_t * ike,
 			   udp_header_t * udp, u32 len)
 {
+#ifndef FLEXIWAN_FIX
   u8 nonce[IKEV2_NONCE_SIZE];
+#endif /* FLEXIWAN_FIX */
   int p = 0;
   u8 payload = ike->nextpayload;
   ike_payload_header_t *ikep;
@@ -866,9 +891,19 @@ ikev2_process_sa_init_req (vlib_main_t * vm,
 	}
       else if (payload == IKEV2_PAYLOAD_NONCE)
 	{
+#ifdef FLEXIWAN_FIX
+	  const u8 *nonce;
+	  int nonce_len;
+	  vec_reset_length (sa->i_nonce);
+	  if ((nonce_len = ikev2_parse_nonce_payload (ikep, current_length,
+						      &nonce)) <= 0)
+	    return 0;
+	  vec_add (sa->i_nonce, nonce, nonce_len);
+#else
 	  vec_reset_length (sa->i_nonce);
 	  if (ikev2_parse_nonce_payload (ikep, current_length, nonce))
 	    vec_add (sa->i_nonce, nonce, plen - sizeof (*ikep));
+#endif /* FLEXIWAN_FIX */
 	}
       else if (payload == IKEV2_PAYLOAD_NOTIFY)
 	{
@@ -932,7 +967,9 @@ ikev2_process_sa_init_resp (vlib_main_t * vm,
 			    ikev2_sa_t * sa, ike_header_t * ike,
 			    udp_header_t * udp, u32 len)
 {
+#ifndef FLEXIWAN_FIX
   u8 nonce[IKEV2_NONCE_SIZE];
+#endif /* FLEXIWAN_FIX */
   int p = 0;
   u8 payload = ike->nextpayload;
   ike_payload_header_t *ikep;
@@ -980,9 +1017,19 @@ ikev2_process_sa_init_resp (vlib_main_t * vm,
 	}
       else if (payload == IKEV2_PAYLOAD_NONCE)
 	{
+#ifdef FLEXIWAN_FIX
+	  const u8 *nonce;
+	  int nonce_len;
+	  vec_reset_length (sa->r_nonce);
+	  if ((nonce_len = ikev2_parse_nonce_payload (ikep, current_length,
+						      &nonce)) <= 0)
+	    return;
+	  vec_add (sa->r_nonce, nonce, nonce_len);
+#else
 	  vec_reset_length (sa->r_nonce);
 	  if (ikev2_parse_nonce_payload (ikep, current_length, nonce))
 	    vec_add (sa->r_nonce, nonce, plen - sizeof (*ikep));
+#endif /* FLEXIWAN_FIX */
 	}
       else if (payload == IKEV2_PAYLOAD_NOTIFY)
 	{
@@ -1467,8 +1514,12 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
   u8 payload = ike->nextpayload;
   u8 *plaintext = 0;
   u8 rekeying = 0;
+#ifdef FLEXIWAN_FIX
+  const u8 *nonce = 0;
+  int nonce_len = 0;
+#else
   u8 nonce[IKEV2_NONCE_SIZE];
-
+#endif /* FLEXIWAN_FIX */
   ike_payload_header_t *ikep;
   ikev2_notify_t *n = 0;
   ikev2_ts_t *tsi = 0;
@@ -1526,7 +1577,13 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
 	}
       else if (payload == IKEV2_PAYLOAD_NONCE)
 	{
+  #ifdef FLEXIWAN_FIX
+	  nonce_len = ikev2_parse_nonce_payload (ikep, current_length, &nonce);
+	  if (nonce_len <= 0)
+	    goto cleanup_and_exit;
+  #else
 	  ikev2_parse_nonce_payload (ikep, current_length, nonce);
+  #endif /* FLEXIWAN_FIX */
 	}
       else if (payload == IKEV2_PAYLOAD_TSI)
 	{
@@ -1551,6 +1608,9 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
     }
 
 #ifdef FLEXIWAN_FIX
+  if (!nonce)
+    goto cleanup_and_exit;
+
   if (ike_hdr_is_response (ike) && proposal
       && proposal->protocol_id == IKEV2_PROTOCOL_ESP)
 #else
@@ -1570,7 +1630,11 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
       rekey->tsr = tsr;
       /* update Nr */
       vec_reset_length (sa->r_nonce);
+#ifdef FLEXIWAN_FIX
+      vec_add (sa->r_nonce, nonce, nonce_len);
+#else
       vec_add (sa->r_nonce, nonce, IKEV2_NONCE_SIZE);
+#endif /* FLEXIWAN_FIX */
       child_sa = ikev2_sa_get_child (sa, rekey->ispi, IKEV2_PROTOCOL_ESP, 1);
       if (child_sa)
 	{
@@ -1595,12 +1659,21 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
 	ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
       rekey->tsi = tsi;
       rekey->tsr = tsr;
+#ifdef FLEXIWAN_FIX
+      /* update Ni */
+      vec_reset_length (sa->i_nonce);
+      vec_add (sa->i_nonce, nonce, nonce_len);
+      /* generate new Nr */
+      vec_validate (sa->r_nonce, nonce_len - 1);
+      RAND_bytes ((u8 *) sa->r_nonce, nonce_len);
+#else
       /* update Ni */
       vec_reset_length (sa->i_nonce);
       vec_add (sa->i_nonce, nonce, IKEV2_NONCE_SIZE);
       /* generate new Nr */
       vec_validate (sa->r_nonce, IKEV2_NONCE_SIZE - 1);
       RAND_bytes ((u8 *) sa->r_nonce, IKEV2_NONCE_SIZE);
+#endif /* FLEXIWAN_FIX */
     }
   else
     goto cleanup_and_exit;
