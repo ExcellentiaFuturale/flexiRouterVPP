@@ -142,6 +142,11 @@ typedef struct
 
 } vrrp_intf_t;
 
+#ifdef FLEXIWAN_FEATURE
+typedef void (* vrrp_add_del_vr_ip_ip4_cb)(int is_add, ip4_address_t*);
+typedef void (* vrrp_add_del_vr_ip_ip6_cb)(int is_add, ip6_address_t*);
+#endif /* FLEXIWAN_FEATURE */
+
 typedef struct
 {
   /* API message ID base */
@@ -173,6 +178,12 @@ typedef struct
   ethernet_main_t *ethernet_main;
 
   u32 intf_output_node_idx;
+
+#ifdef FLEXIWAN_FIX
+  vrrp_add_del_vr_ip_ip4_cb cb_vr_ip_add_del_ip4;
+  vrrp_add_del_vr_ip_ip6_cb cb_vr_ip_add_del_ip6;
+#endif /* FLEXIWAN_FIX */
+
 } vrrp_main_t;
 
 extern vrrp_main_t vrrp_main;
@@ -209,6 +220,10 @@ int vrrp_vr_tracking_ifs_add_del (vrrp_vr_t * vr,
 				  u8 is_add);
 void vrrp_vr_event (vrrp_vr_t * vr, vrrp_vr_state_t new_state);
 
+#ifdef FLEXIWAN_FEATURE
+void
+vrrp_set_cb_vr_ip_add_del(vrrp_add_del_vr_ip_ip4_cb ip4, vrrp_add_del_vr_ip_ip6_cb ip6);
+#endif /* FLEXIWAN_FEATURE */
 
 always_inline void
 vrrp_vr_skew_compute (vrrp_vr_t * vr)
