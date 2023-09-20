@@ -5857,8 +5857,11 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
 
       /* process ike child sas */
       ikev2_main_per_thread_data_t *tkm;
+<<<<<<< HEAD
       f64 now = vlib_time_now (vm);
 
+=======
+>>>>>>> 7b57dc0e57a0f05a6a5efd8f52691ba3c4a4343d
       vec_foreach (tkm, km->per_thread_data)
       {
 	      ikev2_sa_t *sa;
@@ -5866,6 +5869,7 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
         pool_foreach (sa, tkm->sas)  {
           ikev2_child_sa_t *c;
           u8 del_old_ids = 0;
+<<<<<<< HEAD
 #ifdef FLEXIWAN_FIX
           u32 old_last_init_msg_id = sa->last_init_msg_id;
 #endif
@@ -5876,6 +5880,8 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
             sa->time_to_expiration = 0;
             continue;
           }
+=======
+>>>>>>> 7b57dc0e57a0f05a6a5efd8f52691ba3c4a4343d
 
           if (sa->state == IKEV2_STATE_SA_INIT) {
             if (vec_len(sa->childs) > 0) {
