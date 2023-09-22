@@ -20,6 +20,12 @@
  *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
  *   - Extend ACL rule with new fields service_class and importance. They are used as dictionary for matched packets
  *     and not used for matching conditions.
+ *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
  */
 
 option version = "1.0.0";
@@ -45,9 +51,18 @@ enum acl_action : u8
     @param dstport_or_icmpcode_last - end of destination port or ICMP4/6 code range
     @param tcp_flags_mask - if proto==6, match masked TCP flags with this value
     @param tcp_flags_value - if proto==6, mask to AND the TCP flags in the packet with
-    @param service_class - traffic service class for configured rule
-    @param importance - traffic importance for configured rule
+    @param acl_user_attr - User attributes attached to the rule
 */
+
+typedef acl_attributes {
+    u8 service_class;
+    u8 importance;
+};
+
+union acl_user_value {
+    vl_api_acl_attributes_t attributes;
+    u16 user_value;
+};
 
 typedef acl_rule
 {
@@ -80,8 +95,8 @@ typedef acl_rule
   u8 tcp_flags_mask;
   u8 tcp_flags_value;
 /* #ifdef FLEXIWAN_FEATURE */
-  u8 service_class;
-  u8 importance;
+  /* policy_nat44_1to1 - Adding user_value support as union */
+  vl_api_acl_user_value_t acl_user_attr;
 /* #endif FLEXIWAN_FEATURE */
 };
 
