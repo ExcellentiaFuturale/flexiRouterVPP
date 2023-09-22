@@ -29,6 +29,12 @@
  *     respective interface address for NAT (Provides multiwan-dia support).
  *     The feature also has support to invalidate the NAT session on
  *     NAT-interface change due to routing decision changes.
+ *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
  */
 /**
  * @file nat.c
@@ -53,6 +59,12 @@
 #include <vppinfra/bihash_16_8.h>
 #include <nat/lib/lib.h>
 #include <nat/lib/inlines.h>
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+#include <nat/nat44_1to1.h>
+#include <plugins/acl/exported_types.h>
+#include <plugins/acl/public_inlines.h>
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 /* number of worker handoff frame queue elements */
 #define NAT_FQ_NELTS 64
@@ -263,6 +275,9 @@ typedef enum
 /* Feature name: session_recovery_on_nat_addr_flap */
 #define SNAT_SESSION_FLAG_STALE_NAT_ADDR       256
 #endif
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+#define SNAT_SESSION_FLAG_NAT44_1TO1           512
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 /* NAT interface flags */
 #define NAT_INTERFACE_FLAG_IS_INSIDE 1
@@ -549,6 +564,10 @@ typedef u32 (snat_icmp_match_function_t) (struct snat_main_s * sm,
 					  u16 * port,
 					  u32 * fib_index,
 					  nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+					  ip4_address_t * pairing_addr,
+					  u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 					  void *d, void *e,
 					  u8 * dont_translate);
 
@@ -572,6 +591,22 @@ typedef int (nat_alloc_out_addr_and_port_function_t) (snat_address_t *
 						      u16 * port,
 						      u16 port_per_thread,
 						      u32 snat_thread_index);
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+typedef struct
+{
+  ip4_address_t nat_src_prefix;
+  ip4_address_t nat_dst_prefix;
+  u8 src_prefix_len;
+  u8 dst_prefix_len;
+} nat44_1to1_acl_action_t;
+
+typedef struct
+{
+  u32 acl_in_lc;
+  u32 acl_out_lc;
+} nat44_1to1_acl_match_t;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 #define foreach_nat_counter _ (tcp) _ (udp) _ (icmp) _ (other) _ (drops)
 
@@ -600,6 +635,17 @@ typedef struct snat_main_s
 
   /* Static mapping pool */
   snat_static_mapping_t *static_mappings;
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  /* ACL plugin struct of exported functions */
+  acl_plugin_methods_t acl_plugin;
+  /* ACL plugin's module user id */
+  u32 acl_user_id;
+  /* Per interface struct to maintain ACL attachment contexts */
+  nat44_1to1_acl_match_t *nat44_1to1_acl_matches;
+  /* Array of struct to maintain NAT44 1to1 actions */
+  nat44_1to1_acl_action_t *nat44_1to1_acl_actions;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
   /* Endpoint-dependent out2in mappings */
   clib_bihash_16_8_t out2in_ed;
@@ -954,6 +1000,15 @@ unformat_function_t unformat_nat_protocol;
 */
 #define is_exact_address(s) (s->flags & NAT_STATIC_MAPPING_FLAG_EXACT_ADDRESS)
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+/** \brief Check if session is marked NAT44 1TO1
+    @param s SNAT session
+    @return 1 if NAT44-1to1 or 0
+*/
+#define is_nat44_1to1_session(s) (s->flags & SNAT_SESSION_FLAG_NAT44_1TO1)
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+
+
 #ifdef FLEXIWAN_FEATURE
 /* Feature name: session_recovery_on_nat_addr_flap */
 /** \brief Check if sw_if_index has session recovery set
@@ -1175,25 +1230,41 @@ u32 icmp_match_in2out_fast (snat_main_t * sm, vlib_node_runtime_t * node,
 			    u32 thread_index, vlib_buffer_t * b0,
 			    ip4_header_t * ip0, ip4_address_t * addr,
 			    u16 * port, u32 * fib_index,
-			    nat_protocol_t * proto, void *d, void *e,
+			    nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+			    ip4_address_t * pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+			    void *d, void *e,
 			    u8 * dont_translate);
 u32 icmp_match_in2out_slow (snat_main_t * sm, vlib_node_runtime_t * node,
 			    u32 thread_index, vlib_buffer_t * b0,
 			    ip4_header_t * ip0, ip4_address_t * addr,
 			    u16 * port, u32 * fib_index,
-			    nat_protocol_t * proto, void *d, void *e,
+			    nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+			    ip4_address_t * pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+			    void *d, void *e,
 			    u8 * dont_translate);
 u32 icmp_match_out2in_fast (snat_main_t * sm, vlib_node_runtime_t * node,
 			    u32 thread_index, vlib_buffer_t * b0,
 			    ip4_header_t * ip0, ip4_address_t * addr,
 			    u16 * port, u32 * fib_index,
-			    nat_protocol_t * proto, void *d, void *e,
+			    nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+			    ip4_address_t * pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+			    void *d, void *e,
 			    u8 * dont_translate);
 u32 icmp_match_out2in_slow (snat_main_t * sm, vlib_node_runtime_t * node,
 			    u32 thread_index, vlib_buffer_t * b0,
 			    ip4_header_t * ip0, ip4_address_t * addr,
 			    u16 * port, u32 * fib_index,
-			    nat_protocol_t * proto, void *d, void *e,
+			    nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+			    ip4_address_t * pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+			    void *d, void *e,
 			    u8 * dont_translate);
 
 /* ICMP endpoint-dependent session match functions */
@@ -1201,11 +1272,17 @@ u32 icmp_match_out2in_ed (snat_main_t * sm, vlib_node_runtime_t * node,
 			  u32 thread_index, vlib_buffer_t * b0,
 			  ip4_header_t * ip0, ip4_address_t * addr,
 			  u16 * port, u32 * fib_index, nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+			  ip4_address_t * pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 			  void *d, void *e, u8 * dont_translate);
 u32 icmp_match_in2out_ed (snat_main_t * sm, vlib_node_runtime_t * node,
 			  u32 thread_index, vlib_buffer_t * b0,
 			  ip4_header_t * ip0, ip4_address_t * addr,
 			  u16 * port, u32 * fib_index, nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+			  ip4_address_t * pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 			  void *d, void *e, u8 * dont_translate);
 
 u32 icmp_in2out (snat_main_t * sm, vlib_buffer_t * b0, ip4_header_t * ip0,

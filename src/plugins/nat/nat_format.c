@@ -27,6 +27,12 @@
  *     respective interface address for NAT (Provides multiwan-dia support).
  *     The feature also has support to invalidate the NAT session on
  *     NAT-interface change due to routing decision changes.
+ *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
  */
 /**
  * @file
@@ -156,7 +162,11 @@ format_snat_session (u8 * s, va_list * args)
     }
   if (is_ed_session (sess) || is_fwd_bypass_session (sess))
     {
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      if (is_twice_nat_session (sess) || is_nat44_1to1_session (sess))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (is_twice_nat_session (sess))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	{
 	  s = format (s, "       external host o2i %U:%d i2o %U:%d\n",
 		      format_ip4_address, &sess->ext_host_addr,
@@ -186,6 +196,10 @@ format_snat_session (u8 * s, va_list * args)
     s = format (s, "       load-balancing\n");
   if (is_twice_nat_session (sess))
     s = format (s, "       twice-nat\n");
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  if (is_nat44_1to1_session (sess))
+    s = format (s, "       nat44-1to1\n");
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 #ifdef FLEXIWAN_FEATURE
   /* Feature name: nat_interface_specific_address_selection */
   if (sess->sw_if_index != ~0)

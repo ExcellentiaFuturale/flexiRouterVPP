@@ -31,6 +31,12 @@
  *   - nat_interface_specific_address_selection : Feature to select NAT address
  *     based on the output interface assigned to the packet. This ensures using
  *     respective interface address for NAT (Provides multiwan-dia support)
+ *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
  */
 /**
  * @file
@@ -2075,6 +2081,36 @@ nat44_debug_fib_registration_command_fn (vlib_main_t * vm,
   }
   return 0;
 }
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+static clib_error_t *
+nat44_show_1to1_acl_actions_fn (vlib_main_t * vm, unformat_input_t * input,
+                                vlib_cli_command_t * cmd)
+{
+  snat_main_t *sm = &snat_main;
+  for (u32 i = 0; i < vec_len (sm->nat44_1to1_acl_actions); i++)
+    {
+      nat44_1to1_acl_action_t * action = &sm->nat44_1to1_acl_actions[i];
+      vlib_cli_output (vm, "Id: %u NAT Action: [Src %U/%u : Dst %U/%u]", i,
+                       format_ip4_address, &action->nat_src_prefix,
+                       action->src_prefix_len,
+                       format_ip4_address, &action->nat_dst_prefix,
+                       action->dst_prefix_len);
+    }
+  return 0;
+}
+
+
+/* *INDENT-OFF* */
+
+VLIB_CLI_COMMAND (nat44_show_1to1_acl_actions, static) = {
+  .path = "show nat44 1to1 acl-actions",
+  .short_help = "show nat44 1to1 acl-actions",
+  .function = nat44_show_1to1_acl_actions_fn,
+};
+
+/* *INDENT-ON* */
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 /* *INDENT-OFF* */
 

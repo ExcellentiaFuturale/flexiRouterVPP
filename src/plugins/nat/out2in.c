@@ -12,6 +12,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2023 FlexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *  The match criteria is defined as ACLs and attached to the interfaces. The
+ *  ACLs are encoded with the value that points to one of the nat44-1to1
+ *  actions. The feature checks for match in both in2out and out2in directions
+ *  and applies NAT on a match.
+ */
+
 /**
  * @file
  * @brief NAT44 endpoint-dependent outside to inside network translation
@@ -319,8 +330,11 @@ icmp_match_out2in_slow (snat_main_t * sm, vlib_node_runtime_t * node,
 			u32 thread_index, vlib_buffer_t * b0,
 			ip4_header_t * ip0, ip4_address_t * addr,
 			u16 * port, u32 * fib_index,
-			nat_protocol_t * proto, void *d, void *e,
-			u8 * dont_translate)
+			nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+			ip4_address_t *pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+			void *d, void *e, u8 * dont_translate)
 {
   snat_main_per_thread_data_t *tsm = &sm->per_thread_data[thread_index];
   u32 sw_if_index0;
@@ -460,8 +474,11 @@ icmp_match_out2in_fast (snat_main_t * sm, vlib_node_runtime_t * node,
 			u32 thread_index, vlib_buffer_t * b0,
 			ip4_header_t * ip0, ip4_address_t * mapping_addr,
 			u16 * mapping_port, u32 * mapping_fib_index,
-			nat_protocol_t * proto, void *d, void *e,
-			u8 * dont_translate)
+			nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+			ip4_address_t * pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+			void *d, void *e, u8 * dont_translate)
 {
   u32 sw_if_index0;
   u32 rx_fib_index0;
@@ -543,9 +560,18 @@ icmp_out2in (snat_main_t * sm,
 
   echo0 = (icmp_echo_header_t *) (icmp0 + 1);
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  ip4_address_t pairing_addr;
+  u8 nat44_1to1 = 0;
+  next0_tmp = sm->icmp_match_out2in_cb (sm, node, thread_index, b0, ip0,
+					&addr, &port, &fib_index, &proto,
+                                        &pairing_addr, &nat44_1to1,
+                                        d, e, &dont_translate);
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
   next0_tmp = sm->icmp_match_out2in_cb (sm, node, thread_index, b0, ip0,
 					&addr, &port, &fib_index, &proto,
 					d, e, &dont_translate);
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
   if (next0_tmp != ~0)
     next0 = next0_tmp;
   if (next0 == SNAT_OUT2IN_NEXT_DROP || dont_translate)
@@ -574,6 +600,20 @@ icmp_out2in (snat_main_t * sm,
   sum0 = ip0->checksum;
   sum0 = ip_csum_update (sum0, old_addr0, new_addr0, ip4_header_t,
 			 dst_address /* changed member */ );
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  if (nat44_1to1)
+    {
+      /*
+       * Out2in path: The existing VPP code handles only the case of dest NAT
+       *
+       * NAT44-1to1 feature can NAT both src and dst. So update source
+       * address change and corresponding IP checksum update
+       */
+      sum0 = ip_csum_update (sum0, ip0->src_address.as_u32,
+                             pairing_addr.as_u32, ip4_header_t, src_address);
+      ip0->src_address.as_u32 = pairing_addr.as_u32;
+    }
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
   ip0->checksum = ip_csum_fold (sum0);
 
 
@@ -616,6 +656,40 @@ icmp_out2in (snat_main_t * sm,
 	  sum0 = icmp0->checksum;
 	  sum0 = ip_csum_update (sum0, old_addr0, new_addr0, ip4_header_t,
 				 src_address /* changed member */ );
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+          u32 old_inner_dst_addr0;
+          u32 new_inner_dst_addr0;
+          if (nat44_1to1)
+            {
+              /*
+               * Out2in path: Update the dest addr of inner IP packet
+               * and the icmp checksum
+               */
+              old_inner_dst_addr0 = inner_ip0->dst_address.as_u32;
+              inner_ip0->dst_address = pairing_addr;
+              new_inner_dst_addr0 = inner_ip0->dst_address.as_u32;
+              sum0 = ip_csum_update (sum0, old_inner_dst_addr0,
+                                     new_inner_dst_addr0, ip4_header_t,
+                                     dst_address /* changed member */ );
+            }
+	  icmp0->checksum = ip_csum_fold (sum0);
+
+	  /* update inner IP header checksum */
+          u16 old_checksum0, new_checksum0;
+	  old_checksum0 = inner_ip0->checksum;
+	  sum0 = inner_ip0->checksum;
+	  sum0 = ip_csum_update (sum0, old_addr0, new_addr0, ip4_header_t,
+				 src_address /* changed member */ );
+          if (nat44_1to1)
+	    sum0 = ip_csum_update (sum0, old_inner_dst_addr0,
+                                   new_inner_dst_addr0, ip4_header_t,
+				   dst_address /* changed member */ );
+	  inner_ip0->checksum = ip_csum_fold (sum0);
+	  new_checksum0 = inner_ip0->checksum;
+	  sum0 = icmp0->checksum;
+	  sum0 = ip_csum_update
+            (sum0, old_checksum0, new_checksum0, ip4_header_t, checksum);
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	  icmp0->checksum = ip_csum_fold (sum0);
 
 	  switch (proto)

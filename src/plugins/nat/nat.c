@@ -64,6 +64,12 @@
  *     reassembled packets, the packet is looped back into the ip input node.
  *     In such cases, the already de-NATed packet gets dropped in NAT due to
  *     lookup failure. The fix validates re_entry packets and prevents nat drop
+ *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
  */
 
 #include <vnet/vnet.h>
@@ -492,7 +498,12 @@ nat_free_session_data (snat_main_t * sm, snat_session_t * s, u32 thread_index,
       fib_index = s->in2out.fib_index;
       if (!snat_is_unk_proto_session (s))
 	l_port = s->in2out.port;
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /* For the case of dst NAT, use corresponding in2out dst address */
+      if (is_twice_nat_session (s) || (is_nat44_1to1_session (s)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (is_twice_nat_session (s))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	{
 	  r_addr = &s->ext_host_nat_addr;
 	  r_port = s->ext_host_nat_port;
@@ -3059,6 +3070,11 @@ nat_init (vlib_main_t * vm)
   nat_affinity_init (vm);
   nat_ha_init (vm, sm->num_workers, num_threads);
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  /* Init NAT44 1to1 specific contexts */
+  nat44_1to1_init ();
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+
   test_key_calc_split ();
   return nat44_api_hookup (vm);
 }
@@ -4136,7 +4152,12 @@ nat44_ed_get_worker_out2in_cb (vlib_buffer_t * b, ip4_header_t * ip,
     {
       /* use current thread */
       next_worker_index = vlib_get_thread_index ();
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /* Change allows NAT44-1to1-check for other unknown protocols */
+      goto nat44_1to1_check;
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       goto done;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
     }
 
   udp = ip4_next_header (ip);
@@ -4172,7 +4193,12 @@ nat44_ed_get_worker_out2in_cb (vlib_buffer_t * b, ip4_header_t * ip,
 	      break;
 	    default:
 	      next_worker_index = vlib_get_thread_index ();
-	      goto done;
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+              proto = NAT_PROTOCOL_OTHER;
+              goto nat44_1to1_check;
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+              goto done;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	    }
 	}
     }
@@ -4202,6 +4228,29 @@ nat44_ed_get_worker_out2in_cb (vlib_buffer_t * b, ip4_header_t * ip,
 	  goto done;
 	}
     }
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+nat44_1to1_check:;
+  ip4_address_t nat_src_addr, nat_dst_addr;
+  if (!nat44_ed_match_1to1_mapping (b, 1, &nat_src_addr, &nat_dst_addr))
+    {
+      /*
+       * If NAT44-1to1 match, use the in2out callback to pick the right thread
+       * index to process the packet
+       */
+      ip4_header_t i2o_ip = {
+          .src_address.as_u32 = nat_dst_addr.as_u32,
+          .dst_address.as_u32 = nat_src_addr.as_u32,
+          .protocol = ip->protocol
+      };
+      tsm = vec_elt_at_index
+        (sm->per_thread_data, sm->worker_in2out_cb (&i2o_ip, rx_fib_index, 0));
+      next_worker_index = sm->first_worker_index + tsm->thread_index;
+      goto done;
+    }
+  else if (PREDICT_FALSE (proto == NAT_PROTOCOL_OTHER))
+    goto done;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
   /* worker by outside port */
   next_worker_index = sm->first_worker_index;
@@ -4400,7 +4449,12 @@ nat_ha_sadd_ed_cb (ip4_address_t * in_addr, u16 in_port,
   s->flags = flags;
   s->ext_host_nat_addr.as_u32 = s->ext_host_addr.as_u32 = eh_addr->as_u32;
   s->ext_host_nat_port = s->ext_host_port = eh_port;
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  /* For the case of dst NAT, use corresponding in2out dst address */
+  if (is_twice_nat_session (s) || (is_nat44_1to1_session (s)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
   if (is_twice_nat_session (s))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
     {
       s->ext_host_nat_addr.as_u32 = ehn_addr->as_u32;
       s->ext_host_nat_port = ehn_port;
@@ -5092,6 +5146,20 @@ VLIB_REGISTER_NODE (nat_default_node) = {
   },
 };
 /* *INDENT-ON* */
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+static clib_error_t *
+nat_sw_interface_add_del (vnet_main_t * vnm, u32 sw_if_index, u32 is_add)
+{
+  snat_main_t * sm = &snat_main;
+  if ((0 == is_add) && (vec_len (sm->nat44_1to1_acl_matches) > sw_if_index))
+    /* Clear per interface ACL lookup contexts */
+    nat44_ed_1to1_attach_detach_match_acls (sw_if_index, NULL, NULL);
+  return 0;
+}
+
+VNET_SW_INTERFACE_ADD_DEL_FUNCTION (nat_sw_interface_add_del);
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 /*
  * fd.io coding-style-patch-verification: ON

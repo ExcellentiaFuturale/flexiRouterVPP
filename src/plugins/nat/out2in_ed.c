@@ -33,6 +33,12 @@
  *     nat44-ed-output-feature mode and can be enabled on a per interface basis
  *     via API/CLI
  *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
+ *
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - snat_port_refcount_fix : Port reference count was wrongly
  *	decremented during new port allocation
@@ -57,6 +63,10 @@
 #include <nat/lib/nat_syslog.h>
 #include <nat/nat_ha.h>
 #include <nat/nat44/ed_inlines.h>
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+#include <nat/nat44_1to1.h>
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 static char *nat_out2in_ed_error_strings[] = {
 #define _(sym,string) string,
@@ -156,7 +166,11 @@ nat44_o2i_ed_is_idle_session_cb (clib_bihash_kv_16_8_t * kv, void *arg)
 	  l_port = s->in2out.port;
 	  r_port = s->ext_host_port;
 	}
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      if (is_twice_nat_session (s) || is_nat44_1to1_session (s))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (is_twice_nat_session (s))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	{
 	  r_addr = &s->ext_host_nat_addr;
 	  r_port = s->ext_host_nat_port;
@@ -303,6 +317,9 @@ create_session_for_static_mapping_ed (snat_main_t * sm,
 				      u16 o2i_port,
 				      u32 o2i_fib_index,
 				      nat_protocol_t nat_proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+				      ip4_address_t *ext_host_nat_addr,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 				      vlib_node_runtime_t * node,
 				      u32 rx_fib_index,
 				      u32 thread_index,
@@ -312,7 +329,6 @@ create_session_for_static_mapping_ed (snat_main_t * sm,
 {
   snat_session_t *s;
   ip4_header_t *ip;
-  udp_header_t *udp;
   snat_main_per_thread_data_t *tsm = &sm->per_thread_data[thread_index];
   clib_bihash_kv_16_8_t kv;
   nat44_is_idle_session_ctx_t ctx;
@@ -334,10 +350,20 @@ create_session_for_static_mapping_ed (snat_main_t * sm,
     }
 
   ip = vlib_buffer_get_current (b);
-  udp = ip4_next_header (ip);
 
   s->ext_host_addr.as_u32 = ip->src_address.as_u32;
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  /*
+   * Use frag-reassembly fields to fetch the port details. This covers both
+   * fragmented and non-fragmented packets
+   */
+  s->ext_host_port = nat_proto == NAT_PROTOCOL_ICMP ?
+    0 : vnet_buffer (b)->ip.reass.l4_src_port,
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+  udp_header_t *udp;
+  udp = ip4_next_header (ip);
   s->ext_host_port = nat_proto == NAT_PROTOCOL_ICMP ? 0 : udp->src_port;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
   s->flags |= SNAT_SESSION_FLAG_STATIC_MAPPING;
   if (lb_nat)
     s->flags |= SNAT_SESSION_FLAG_LOAD_BALANCING;
@@ -352,6 +378,15 @@ create_session_for_static_mapping_ed (snat_main_t * sm,
   s->in2out.fib_index = i2o_fib_index;
   s->nat_proto = nat_proto;
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  if (ext_host_nat_addr)
+    {
+      /* NAT44 1to1: Record the i2o path's dest address in the session */
+      s->ext_host_nat_addr.as_u32 = ext_host_nat_addr->as_u32;
+      s->ext_host_nat_port = s->ext_host_port;
+      s->flags |= SNAT_SESSION_FLAG_NAT44_1TO1;
+    }
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
   /* Add to lookup tables */
   init_ed_kv (&kv, o2i_addr, o2i_port, s->ext_host_addr, s->ext_host_port,
 	      o2i_fib_index, ip->protocol, thread_index, s - tsm->sessions);
@@ -420,9 +455,24 @@ create_session_for_static_mapping_ed (snat_main_t * sm,
     }
   else
     {
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /*
+       * NAT44 1to1: Make use of the i2o dest address to lookup the
+       * in2out_ed table
+       */
+      if (ext_host_nat_addr)
+        init_ed_kv (&kv, i2o_addr, i2o_port, s->ext_host_nat_addr,
+                    s->ext_host_nat_port, i2o_fib_index, ip->protocol,
+                    thread_index, s - tsm->sessions);
+      else
+        init_ed_kv (&kv, i2o_addr, i2o_port, s->ext_host_addr,
+		    s->ext_host_port, i2o_fib_index, ip->protocol,
+		    thread_index, s - tsm->sessions);
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       init_ed_kv (&kv, i2o_addr, i2o_port, s->ext_host_addr,
 		  s->ext_host_port, i2o_fib_index, ip->protocol,
 		  thread_index, s - tsm->sessions);
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
     }
   if (clib_bihash_add_or_overwrite_stale_16_8 (&tsm->in2out_ed, &kv,
 					       nat44_i2o_ed_is_idle_session_cb,
@@ -601,6 +651,9 @@ icmp_match_out2in_ed (snat_main_t * sm, vlib_node_runtime_t * node,
 		      u32 thread_index, vlib_buffer_t * b,
 		      ip4_header_t * ip, ip4_address_t * addr,
 		      u16 * port, u32 * fib_index, nat_protocol_t * proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+		      ip4_address_t * pairing_addr, u8 * nat44_1to1,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 		      void *d, void *e, u8 * dont_translate)
 {
   u32 next = ~0, sw_if_index, rx_fib_index;
@@ -629,10 +682,30 @@ icmp_match_out2in_ed (snat_main_t * sm, vlib_node_runtime_t * node,
 
   if (clib_bihash_search_16_8 (&sm->out2in_ed, &kv, &value))
     {
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      identity_nat = is_addr_only = 0;
+      i32 rv = snat_static_mapping_match
+        (sm, ip->dst_address, l_port, rx_fib_index,
+	 ip_proto_to_nat_proto (ip->protocol), &sm_addr, &sm_port,
+	 &sm_fib_index, 1, &is_addr_only, 0, 0, 0, &identity_nat, &m);
+      if (rv)
+        {
+          /* Lookup in NAT44-1to1 config to check if there is a match */
+          rv = nat44_ed_match_1to1_mapping (b, 1, pairing_addr, &sm_addr);
+          if (!rv)
+            {
+              sm_port = l_port;
+              *nat44_1to1 = 1;
+              sm_fib_index = rx_fib_index;
+            }
+        }
+      if (rv)
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (snat_static_mapping_match
 	  (sm, ip->dst_address, l_port, rx_fib_index,
 	   ip_proto_to_nat_proto (ip->protocol), &sm_addr, &sm_port,
 	   &sm_fib_index, 1, &is_addr_only, 0, 0, 0, &identity_nat, &m))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	{
 	  // static mapping not matched
 	  if (!sm->forwarding_enabled)
@@ -678,6 +751,13 @@ icmp_match_out2in_ed (snat_main_t * sm, vlib_node_runtime_t * node,
 	  goto out;
 	}
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /*
+       * Check for ICMP type not required if NAT44-1to1 is true. As the feature
+       * allows initiating ICMP from out2in direction.
+       */
+      if (PREDICT_FALSE (!nat44_1to1))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (PREDICT_FALSE
 	  (vnet_buffer (b)->ip.reass.icmp_type_or_tcp_flags !=
 	   ICMP4_echo_reply
@@ -700,6 +780,9 @@ icmp_match_out2in_ed (snat_main_t * sm, vlib_node_runtime_t * node,
 	create_session_for_static_mapping_ed (sm, b, sm_addr, sm_port,
 					      sm_fib_index, ip->dst_address,
 					      l_port, rx_fib_index, *proto,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+					      pairing_addr,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 					      node, rx_fib_index,
 					      thread_index, 0, 0,
 					      vlib_time_now (vm), m);
@@ -732,6 +815,13 @@ out:
       *addr = s->in2out.addr;
       *port = s->in2out.port;
       *fib_index = s->in2out.fib_index;
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      if (is_nat44_1to1_session (s))
+        {
+          *nat44_1to1 = 1;
+          *pairing_addr = s->ext_host_nat_addr;
+        }
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
     }
   if (d)
     *(snat_session_t **) d = s;
@@ -755,6 +845,10 @@ nat44_ed_out2in_unknown_proto (snat_main_t * sm,
   ip_csum_t sum;
   snat_session_t *s;
   snat_main_per_thread_data_t *tsm = &sm->per_thread_data[thread_index];
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  u8 nat44_1to1 = 0;
+  ip4_address_t sm_addr, sm_pairing_addr;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
   old_addr = ip->dst_address.as_u32;
 
@@ -784,6 +878,15 @@ nat44_ed_out2in_unknown_proto (snat_main_t * sm,
       if (clib_bihash_search_8_8
 	  (&sm->static_mapping_by_external, &kv, &value))
 	{
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+          /* Lookup in NAT44-1to1 config to check if there is a match */
+          if (!nat44_ed_match_1to1_mapping (b, 1, &sm_pairing_addr, &sm_addr))
+            {
+              nat44_1to1 = 1;
+              new_addr = ip->dst_address.as_u32 = sm_addr.as_u32;
+              goto create_ses;
+            }
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	  b->error = node->errors[NAT_OUT2IN_ED_ERROR_NO_TRANSLATION];
 	  return 0;
 	}
@@ -792,6 +895,9 @@ nat44_ed_out2in_unknown_proto (snat_main_t * sm,
 
       new_addr = ip->dst_address.as_u32 = m->local_addr.as_u32;
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+create_ses:
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       /* Create a new session */
       s = nat_ed_session_alloc (sm, thread_index, now, ip->protocol);
       if (!s)
@@ -811,13 +917,37 @@ nat44_ed_out2in_unknown_proto (snat_main_t * sm,
       s->in2out.fib_index = m->fib_index;
       s->in2out.port = s->out2in.port = ip->protocol;
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      if (nat44_1to1)
+        {
+          /* NAT44 1to1: Record the i2o path's dest address in the session */
+          s->flags |= SNAT_SESSION_FLAG_NAT44_1TO1;
+          s->ext_host_nat_addr = sm_pairing_addr;
+          s->ext_host_nat_port = s->ext_host_port = ip->protocol;
+        }
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       /* Add to lookup tables */
       s_kv.value = s - tsm->sessions;
       if (clib_bihash_add_del_16_8 (&sm->out2in_ed, &s_kv, 1))
 	nat_elog_notice ("out2in key add failed");
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /*
+       * NAT44 1to1: Make use of the i2o dest address to lookup the
+       * in2out_ed table
+       */
+      if (nat44_1to1)
+        init_ed_kv (&s_kv, ip->dst_address, 0, s->ext_host_nat_addr, 0,
+                    m->fib_index, ip->protocol, thread_index,
+                    s - tsm->sessions);
+      else
+        init_ed_kv (&s_kv, ip->dst_address, 0, ip->src_address, 0,
+                    m->fib_index, ip->protocol, thread_index,
+                    s - tsm->sessions);
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       init_ed_kv (&s_kv, ip->dst_address, 0, ip->src_address, 0, m->fib_index,
 		  ip->protocol, thread_index, s - tsm->sessions);
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (clib_bihash_add_del_16_8 (&tsm->in2out_ed, &s_kv, 1))
 	nat_elog_notice ("in2out key add failed");
 
@@ -827,6 +957,16 @@ nat44_ed_out2in_unknown_proto (snat_main_t * sm,
   /* Update IP checksum */
   sum = ip->checksum;
   sum = ip_csum_update (sum, old_addr, new_addr, ip4_header_t, dst_address);
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+  if (is_nat44_1to1_session (s))
+    {
+      /* Out2in path: Also update the source address based on lookup result */
+      sum = ip_csum_update
+        (sum, ip->src_address.as_u32, sm_pairing_addr.as_u32,
+         ip4_header_t, src_address);
+      ip->src_address.as_u32 = s->ext_host_nat_addr.as_u32;
+    }
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
   ip->checksum = ip_csum_fold (sum);
 
   vnet_buffer (b)->sw_if_index[VLIB_TX] = s->in2out.fib_index;
@@ -1117,7 +1257,13 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
       sum0 = ip0->checksum;
       sum0 = ip_csum_update (sum0, old_addr0, new_addr0, ip4_header_t,
 			     dst_address);
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /* Out2in path: Factor in the source IP change in the checksum */
+      if (PREDICT_FALSE (is_twice_nat_session (s0) ||
+                         is_nat44_1to1_session (s0)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (PREDICT_FALSE (is_twice_nat_session (s0)))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	sum0 = ip_csum_update (sum0, ip0->src_address.as_u32,
 			       s0->ext_host_nat_addr.as_u32, ip4_header_t,
 			       src_address);
@@ -1137,7 +1283,14 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 	      sum0 =
 		ip_csum_update (sum0, old_port0, new_port0, ip4_header_t,
 				length);
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+              /* Factor in source address change for TCP checksum update */
+              if (PREDICT_FALSE(is_twice_nat_session (s0) ||
+                                is_nat44_1to1_session (s0)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	      if (is_twice_nat_session (s0))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 		{
 		  sum0 = ip_csum_update (sum0, ip0->src_address.as_u32,
 					 s0->ext_host_nat_addr.as_u32,
@@ -1173,7 +1326,13 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 			    dst_address);
 	  sum0 =
 	    ip_csum_update (sum0, old_port0, new_port0, ip4_header_t, length);
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+          /* Factor in source address change for UDP checksum update */
+          if (PREDICT_FALSE(is_twice_nat_session (s0) ||
+                            is_nat44_1to1_session (s0)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	  if (PREDICT_FALSE (is_twice_nat_session (s0)))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	    {
 	      sum0 =
 		ip_csum_update (sum0, ip0->src_address.as_u32,
@@ -1194,7 +1353,14 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 	  if (!vnet_buffer (b0)->ip.reass.is_non_first_fragment)
 	    {
 	      new_port0 = udp0->dst_port = s0->in2out.port;
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+              /* Update src IP address for first udp fragment with udp_csum=0*/
+              if (PREDICT_FALSE(is_twice_nat_session (s0) ||
+                                is_nat44_1to1_session (s0)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	      if (PREDICT_FALSE (is_twice_nat_session (s0)))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 		{
 		  udp0->src_port = s0->ext_host_nat_port;
 		  ip0->src_address.as_u32 = s0->ext_host_nat_addr.as_u32;
@@ -1203,7 +1369,11 @@ nat44_ed_out2in_fast_path_node_fn_inline (vlib_main_t * vm,
 	  vlib_increment_simple_counter_dummy (&sm->counters.fastpath.out2in_ed.udp,
 					 thread_index, sw_if_index0, 1);
 	}
-
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /* Update source IP address for fragmented packets */
+      if (PREDICT_FALSE(is_nat44_1to1_session (s0)))
+        ip0->src_address.as_u32 = s0->ext_host_nat_addr.as_u32;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       /* Accounting */
       nat44_session_update_counters (s0, now,
 				     vlib_buffer_length_in_chain (vm, b0),
@@ -1368,11 +1538,35 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
 	  /* Try to match static mapping by external address and port,
 	     destination address and port in packet */
 
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+          u8 nat44_1to1 = 0;
+          ip4_address_t sm_pairing_addr;
+          i32 rv = snat_static_mapping_match
+            (sm, ip0->dst_address,
+	     vnet_buffer (b0)->ip.reass.l4_dst_port, rx_fib_index0,
+	     proto0, &sm_addr, &sm_port, &sm_fib_index, 1, 0,
+	     &twice_nat0, &lb_nat0, &ip0->src_address, &identity_nat0, &m);
+          if (rv)
+            {
+              /* Lookup in NAT44-1to1 config to check if there is a match */
+              rv = nat44_ed_match_1to1_mapping
+                (b0, 1, &sm_pairing_addr, &sm_addr);
+              if (!rv)
+                {
+                  sm_port = vnet_buffer (b0)->ip.reass.l4_dst_port;
+                  nat44_1to1 = 1;
+                  identity_nat0 = lb_nat0 = twice_nat0 = 0;
+                  sm_fib_index = rx_fib_index0;
+                }
+            }
+          if (rv)
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	  if (snat_static_mapping_match
 	      (sm, ip0->dst_address,
 	       vnet_buffer (b0)->ip.reass.l4_dst_port, rx_fib_index0,
 	       proto0, &sm_addr, &sm_port, &sm_fib_index, 1, 0,
 	       &twice_nat0, &lb_nat0, &ip0->src_address, &identity_nat0, &m))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	    {
 	      /*
 	       * Send DHCP packets to the ipv4 stack, or we won't
@@ -1440,6 +1634,9 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
 						     vnet_buffer (b0)->
 						     ip.reass.l4_dst_port,
 						     rx_fib_index0, proto0,
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+						     (nat44_1to1) ? &sm_pairing_addr : NULL,
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 						     node, rx_fib_index0,
 						     thread_index, twice_nat0,
 						     lb_nat0, now, m);
@@ -1457,10 +1654,18 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
       sum0 = ip0->checksum;
       sum0 = ip_csum_update (sum0, old_addr0, new_addr0, ip4_header_t,
 			     dst_address);
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /* Out2in path: Factor in the source IP change in the checksum */
+      if (PREDICT_FALSE (is_twice_nat_session (s0) ||
+                         is_nat44_1to1_session (s0)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (PREDICT_FALSE (is_twice_nat_session (s0)))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	sum0 = ip_csum_update (sum0, ip0->src_address.as_u32,
 			       s0->ext_host_nat_addr.as_u32, ip4_header_t,
 			       src_address);
+
       ip0->checksum = ip_csum_fold (sum0);
 
       old_port0 = vnet_buffer (b0)->ip.reass.l4_dst_port;
@@ -1477,7 +1682,14 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
 	      sum0 =
 		ip_csum_update (sum0, old_port0, new_port0, ip4_header_t,
 				length);
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+              /* Factor in source address change for TCP checksum update */
+              if (PREDICT_FALSE (is_twice_nat_session (s0) ||
+                                 is_nat44_1to1_session (s0)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	      if (is_twice_nat_session (s0))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 		{
 		  sum0 = ip_csum_update (sum0, ip0->src_address.as_u32,
 					 s0->ext_host_nat_addr.as_u32,
@@ -1512,7 +1724,13 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
 				 dst_address);
 	  sum0 = ip_csum_update (sum0, old_port0, new_port0, ip4_header_t,
 				 length);
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+          /* Factor in source address change for UDP checksum update */
+          if (PREDICT_FALSE (is_twice_nat_session (s0) ||
+                             is_nat44_1to1_session (s0)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	  if (PREDICT_FALSE (is_twice_nat_session (s0)))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	    {
 	      sum0 = ip_csum_update (sum0, ip0->src_address.as_u32,
 				     s0->ext_host_nat_addr.as_u32,
@@ -1533,7 +1751,14 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
 	  if (!vnet_buffer (b0)->ip.reass.is_non_first_fragment)
 	    {
 	      new_port0 = udp0->dst_port = s0->in2out.port;
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+              /* Update src IP address for first udp fragment with udp_csum=0*/
+              if (PREDICT_FALSE(is_twice_nat_session (s0) ||
+                                is_nat44_1to1_session (s0)))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	      if (PREDICT_FALSE (is_twice_nat_session (s0)))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 		{
 		  udp0->src_port = s0->ext_host_nat_port;
 		  ip0->src_address.as_u32 = s0->ext_host_nat_addr.as_u32;
@@ -1542,7 +1767,11 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
 	  vlib_increment_simple_counter_dummy (&sm->counters.slowpath.out2in_ed.udp,
 					 thread_index, sw_if_index0, 1);
 	}
-
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      /* Update source IP address for fragmented packets */
+      if (PREDICT_FALSE(is_nat44_1to1_session (s0)))
+        ip0->src_address.as_u32 = s0->ext_host_nat_addr.as_u32;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       /* Accounting */
       nat44_session_update_counters (s0, now,
 				     vlib_buffer_length_in_chain (vm, b0),
