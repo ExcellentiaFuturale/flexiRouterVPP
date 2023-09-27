@@ -18,6 +18,12 @@
  *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
  *   - Extend ACL rule with new fields service_class and importance. They are used as dictionary for matched packets
  *     and not used for matching conditions.
+ *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
  */
 
 #ifndef included_acl_types_h
@@ -42,8 +48,14 @@ typedef struct
   u8 tcp_flags_value;
   u8 tcp_flags_mask;
 #ifdef FLEXIWAN_FEATURE
-  u8 service_class;
-  u8 importance;
+  /* policy_nat44_1to1 - Adding user_value support as union */
+  union {
+      struct {
+          u8 service_class;
+          u8 importance;
+      };
+      u16 user_value;
+  };
 #endif /* FLEXIWAN_FEATURE */
 } acl_rule_t;
 

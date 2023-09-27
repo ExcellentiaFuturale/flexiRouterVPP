@@ -18,6 +18,12 @@
  *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
  *   - Extend ACL rule with new fields service_class and importance. They are used as dictionary for matched packets
  *     and not used for matching conditions.
+ *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
  */
 
 #include <stddef.h>
@@ -200,8 +206,10 @@ acl_print_acl_x (acl_vector_print_func_t vpr, vlib_main_t * vm,
 		    r->tcp_flags_mask);
 	}
 #ifdef FLEXIWAN_FEATURE
-      out0 = format (out0, " class %d", r->service_class);
-      out0 = format (out0, " level %d", r->importance);
+      /* policy_nat44_1to1 - Adding user_value support as union */
+      out0 = format (out0, " user_value %d (class %d importance %d)",
+                     clib_net_to_host_u16 (r->user_value),
+                     r->service_class, r->importance);
 #endif /* FLEXIWAN_FEATURE */
       out0 = format (out0, "\n");
       vpr (vm, out0);
@@ -393,8 +401,8 @@ acl_add_list (u32 count, vl_api_acl_rule_t rules[],
       r->tcp_flags_value = rules[i].tcp_flags_value;
       r->tcp_flags_mask = rules[i].tcp_flags_mask;
 #ifdef FLEXIWAN_FEATURE
-      r->service_class = rules[i].service_class;
-      r->importance = rules[i].importance;
+      /* policy_nat44_1to1 - Adding user_value support as union */
+      r->user_value = rules[i].acl_user_attr.user_value;
 #endif /* FLEXIWAN_FEATURE */
     }
 
@@ -1932,8 +1940,8 @@ copy_acl_rule_to_api_rule (vl_api_acl_rule_t * api_rule, acl_rule_t * r)
   api_rule->tcp_flags_mask = r->tcp_flags_mask;
   api_rule->tcp_flags_value = r->tcp_flags_value;
 #ifdef FLEXIWAN_FEATURE
-  api_rule->service_class = r->service_class;
-  api_rule->importance = r->importance;
+  /* policy_nat44_1to1 - Adding user_value support as union */
+  api_rule->acl_user_attr.user_value = r->user_value;
 #endif /* FLEXIWAN_FEATURE */
 }
 
@@ -2949,15 +2957,17 @@ acl_set_aclplugin_acl_fn (vlib_main_t * vm,
 	  rules[rule_idx].proto = proto;
 	}
 #ifdef FLEXIWAN_FEATURE
+      /* policy_nat44_1to1 - Adding user_value support as union */
       else if (unformat (line_input, "class %d", &service_class))
 	{
 	  vec_validate_acl_rules (rules, rule_idx);
-    rules[rule_idx].service_class = service_class;
+          rules[rule_idx].acl_user_attr.attributes.service_class =
+            service_class;
 	}
-      else if (unformat (line_input, "level %d", &importance))
+      else if (unformat (line_input, "importance %d", &importance))
 	{
 	  vec_validate_acl_rules (rules, rule_idx);
-    rules[rule_idx].importance = importance;
+          rules[rule_idx].acl_user_attr.attributes.importance = importance;
 	}
 #endif /* FLEXIWAN_FEATURE */
       else if (unformat (line_input, "tag %s", &tag))

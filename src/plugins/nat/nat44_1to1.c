@@ -190,15 +190,26 @@ nat44_ed_match_1to1_acls (u32 acl_lc, vlib_buffer_t *b,
   u32 match_acl_pos;
   u32 match_rule_index;
   u32 trace_bitmap;
-  u8 acl_value;
+  u8 action;
+  u16 acl_value;
 
   acl_plugin_fill_5tuple_inline
     (sm->acl_plugin.p_acl_main, acl_lc, b, 0, 1 /* is_input */, 0 /* is_l2 */,
      &fa_5tuple0);
   if (acl_plugin_match_5tuple_inline
-      (sm->acl_plugin.p_acl_main, acl_lc, &fa_5tuple0, 0, &acl_value,
+      (sm->acl_plugin.p_acl_main, acl_lc, &fa_5tuple0, 0, &action,
        &match_acl_pos, &match_acl_index, &match_rule_index, &trace_bitmap))
     {
+      if (acl_plugin_get_acl_user_value_inline (sm->acl_plugin.p_acl_main,
+                                            match_acl_index, match_rule_index,
+                                            &acl_value))
+        {
+          clib_warning
+            ("NAT44 1to1 ACL value fetch failed: acl_index: %u rule_index: %u",
+                        match_acl_index, match_rule_index);
+          return 1;
+        }
+      acl_value = clib_net_to_host_u16 (acl_value);
       if (acl_value >= vec_len (sm->nat44_1to1_acl_actions))
         {
           clib_warning ("NAT44 1to1 ACL refers invalid action: %u (Max: %u)",
