@@ -12,6 +12,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ *  Copyright (C) 2023 FlexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *  The match criteria is defined as ACLs and attached to the interfaces. The
+ *  ACLs are encoded with the value that points to one of the nat44-1to1
+ *  actions. The feature checks for match in both in2out and out2in directions
+ *  and applies NAT on a match.
+ */
+
 /**
  * @file
  * @brief Classify for one armed NAT44 (in+out interface)
@@ -22,6 +33,9 @@
 #include <vnet/fib/ip4_fib.h>
 #include <nat/nat.h>
 #include <nat/nat_inlines.h>
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+#include <nat/nat44_1to1.h>
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 #define foreach_nat44_classify_error                      \
 _(NEXT_IN2OUT, "next in2out")                             \
@@ -255,6 +269,16 @@ nat44_handoff_classify_node_fn_inline (vlib_main_t * vm,
 		    next0 = NAT_NEXT_OUT2IN_CLASSIFY;
 		}
 	    }
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+          /*
+           * Mark as OUT2IN_CLASSIFY, If NAT44 1to1 configuration has a match
+           * in the out2in direction
+           */
+          ip4_address_t src_addr, dst_addr;
+          if (!nat44_ed_match_1to1_mapping (b0, 1 /* out2in */,
+                                            &dst_addr, &src_addr))
+            next0 = NAT_NEXT_OUT2IN_CLASSIFY;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 	enqueue0:
 	  if (PREDICT_FALSE ((node->flags & VLIB_NODE_FLAG_TRACE)
@@ -387,6 +411,16 @@ nat44_ed_classify_node_fn_inline (vlib_main_t * vm,
 		    next0 = NAT_NEXT_OUT2IN_ED_FAST_PATH;
 		}
 	    }
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+          /*
+           * Mark as OUT2IN_CLASSIFY, If NAT44 1to1 configuration has a match
+           * in the out2in direction
+           */
+          ip4_address_t src_addr, dst_addr;
+          if (!nat44_ed_match_1to1_mapping (b0, 1 /* out2in */,
+                                            &dst_addr, &src_addr))
+            next0 = NAT_NEXT_OUT2IN_ED_FAST_PATH;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 	enqueue0:
 	  if (PREDICT_FALSE ((node->flags & VLIB_NODE_FLAG_TRACE)
