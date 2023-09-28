@@ -1555,7 +1555,9 @@ nat44_ed_out2in_slow_path_node_fn_inline (vlib_main_t * vm,
                 {
                   sm_port = vnet_buffer (b0)->ip.reass.l4_dst_port;
                   nat44_1to1 = 1;
-                  identity_nat0 = lb_nat0 = twice_nat0 = 0;
+                  identity_nat0 = 0;
+                  lb_nat0 = NO_LB_NAT;
+                  twice_nat0 = TWICE_NAT_DISABLED;
                   sm_fib_index = rx_fib_index0;
                 }
             }
