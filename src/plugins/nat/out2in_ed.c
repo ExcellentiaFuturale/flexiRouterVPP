@@ -848,6 +848,7 @@ nat44_ed_out2in_unknown_proto (snat_main_t * sm,
 #ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
   u8 nat44_1to1 = 0;
   ip4_address_t sm_addr, sm_pairing_addr;
+  m = NULL;
 #endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
   old_addr = ip->dst_address.as_u32;
@@ -914,7 +915,11 @@ create_ses:
       s->out2in.addr.as_u32 = old_addr;
       s->out2in.fib_index = rx_fib_index;
       s->in2out.addr.as_u32 = new_addr;
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      s->in2out.fib_index = m ? m->fib_index : rx_fib_index;
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       s->in2out.fib_index = m->fib_index;
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       s->in2out.port = s->out2in.port = ip->protocol;
 
 #ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
@@ -938,7 +943,7 @@ create_ses:
        */
       if (nat44_1to1)
         init_ed_kv (&s_kv, ip->dst_address, 0, s->ext_host_nat_addr, 0,
-                    m->fib_index, ip->protocol, thread_index,
+                    rx_fib_index, ip->protocol, thread_index,
                     s - tsm->sessions);
       else
         init_ed_kv (&s_kv, ip->dst_address, 0, ip->src_address, 0,
