@@ -721,8 +721,31 @@ ikev2_calc_child_keys (ikev2_sa_t * sa, ikev2_child_sa_t * child)
   if (kex)
     vec_append (s, sa->dh_shared_key);
 #endif
+
+#ifdef FLEXIWAN_FEATURE
+  if (vec_len (sa->rekey) > 0)
+  {
+    if (sa->rekey[0].is_initiator)
+    {
+      vec_append (s, sa->i_nonce);
+      vec_append (s, sa->r_nonce);
+    }
+    else
+    {
+      vec_append (s, sa->r_nonce);
+      vec_append (s, sa->i_nonce);
+    }
+  }
+  else
+  {
+    vec_append (s, sa->i_nonce);
+    vec_append (s, sa->r_nonce);
+  }
+#else
   vec_append (s, sa->i_nonce);
   vec_append (s, sa->r_nonce);
+#endif
+
   /* calculate PRFplus */
   u8 *keymat;
   int len = ctr_encr->key_len * 2 + integ_key_len * 2 + salt_len * 2;
@@ -1505,6 +1528,56 @@ ikev2_process_informational_req (vlib_main_t * vm,
   return 1;
 }
 
+#ifdef FLEXIWAN_FEATURE
+static int
+ikev2_process_create_child_sa_rekey (ikev2_sa_t *sa,
+				     ikev2_rekey_t *rekey,
+				     ikev2_sa_proposal_t *proposal,
+				     ikev2_ts_t *tsi, ikev2_ts_t *tsr,
+				     const u8 *nonce, int nonce_len)
+{
+  ikev2_sa_transform_t *tr;
+
+  /* Use responder role for child keys generation as far as
+     rekeying was initiated not by us */
+  rekey->is_initiator = 0;
+
+  rekey->r_proposal = proposal;
+  rekey->i_proposal = ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
+
+  if (sa->dh_group)
+    {
+      tr =
+	ikev2_sa_get_td_for_type (rekey->i_proposal, IKEV2_TRANSFORM_TYPE_DH);
+
+      if (!tr || tr->dh_type != sa->dh_group)
+	{
+	  rekey->notify_type = IKEV2_NOTIFY_MSG_INVALID_KE_PAYLOAD;
+	  ikev2_sa_free_proposal_vector (&rekey->i_proposal);
+	  return 0;
+	}
+
+      vec_free (sa->dh_shared_key);
+      vec_free (sa->dh_private_key);
+      vec_free (sa->i_dh_data);
+
+      ikev2_generate_dh (sa, tr);
+      rekey->kex = 1;
+    }
+
+  vec_reset_length (sa->r_nonce);
+  vec_add (sa->r_nonce, nonce, nonce_len);
+
+  vec_validate (sa->i_nonce, nonce_len - 1);
+  RAND_bytes ((u8 *) sa->i_nonce, nonce_len);
+
+  rekey->tsi = tsi;
+  rekey->tsr = tsr;
+
+  return 1;
+}
+#endif
+
 static int
 ikev2_process_create_child_sa_req (vlib_main_t * vm,
 				   ikev2_sa_t * sa, ike_header_t * ike,
@@ -1528,6 +1601,9 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
   ikev2_child_sa_t *child_sa;
   u32 dlen = 0;
   u16 plen;
+#ifdef FLEXIWAN_FEATURE
+  u8 kex = false;
+#endif
 
   ikev2_elog_exchange ("ispi %lx rspi %lx CREATE_CHILD_SA received "
 		       "from ", clib_host_to_net_u64 (ike->ispi),
@@ -1557,6 +1633,7 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
       else if (payload == IKEV2_PAYLOAD_KE)
 	{
 	  ikev2_parse_ke_payload (ikep, current_length, sa, &sa->r_dh_data);
+	  kex = true;
 	}
 #endif
       else if (payload == IKEV2_PAYLOAD_NOTIFY)
@@ -1641,6 +1718,7 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
 	  child_sa->rekey_retries = 0;
 	}
     }
+#ifndef FLEXIWAN_FEATURE
   else if (rekeying)
     {
       ikev2_rekey_t *rekey;
@@ -1659,24 +1737,29 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
 	ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
       rekey->tsi = tsi;
       rekey->tsr = tsr;
-#ifdef FLEXIWAN_FIX
-      /* update Ni */
-      vec_reset_length (sa->i_nonce);
-      vec_add (sa->i_nonce, nonce, nonce_len);
-      /* generate new Nr */
-      vec_validate (sa->r_nonce, nonce_len - 1);
-      RAND_bytes ((u8 *) sa->r_nonce, nonce_len);
-#else
       /* update Ni */
       vec_reset_length (sa->i_nonce);
       vec_add (sa->i_nonce, nonce, IKEV2_NONCE_SIZE);
       /* generate new Nr */
       vec_validate (sa->r_nonce, IKEV2_NONCE_SIZE - 1);
       RAND_bytes ((u8 *) sa->r_nonce, IKEV2_NONCE_SIZE);
-#endif /* FLEXIWAN_FIX */
     }
+#endif
   else
+#ifdef FLEXIWAN_FEATURE
+  {
+	  /* create new child SA */
+	  ikev2_rekey_t *rekey;
+	  vec_add2 (sa->rekey, rekey, 1);
+	  rekey->kex = kex;
+	  rekey->notify_type = 0;
+	  rekey->rekeying = rekeying;
+	  ikev2_process_create_child_sa_rekey (
+	       sa, rekey, proposal, tsi, tsr, nonce, nonce_len);
+  }
+#else
     goto cleanup_and_exit;
+#endif
   vec_free (n);
   return 1;
 
@@ -2138,7 +2221,7 @@ static int
 ikev2_create_tunnel_interface (vlib_main_t * vm,
 			       ikev2_sa_t * sa,
 			       ikev2_child_sa_t * child, u32 sa_index,
-			       u32 child_index, u8 is_rekey, u8 kex)
+			       u32 child_index, u8 is_rekey, u8 kex, u8 is_new_tunnel)
 #else
 static int
 ikev2_create_tunnel_interface (vlib_main_t * vm,
@@ -2190,7 +2273,11 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
     }
   if (ikev2_natt_active (sa))
     a.flags |= IPSEC_SA_FLAG_UDP_ENCAP;
+#ifdef FLEXIWAN_FEATURE
+  a.is_rekey = !is_new_tunnel;
+#else
   a.is_rekey = is_rekey;
+#endif
 
   tr = ikev2_sa_get_td_for_type (proposals, IKEV2_TRANSFORM_TYPE_ESN);
   if (tr && tr->esn_type)
@@ -2295,7 +2382,16 @@ ikev2_create_tunnel_interface (vlib_main_t * vm,
   ikev2_calc_child_keys (sa, child);
 #endif
 
+#ifdef FLEXIWAN_FEATURE
+  u8 is_initiator = sa->is_initiator;
+  if (is_rekey && vec_len (sa->rekey) > 0)
+  {
+    is_initiator = sa->rekey[0].is_initiator;
+  }
+  if (is_initiator)
+#else
   if (sa->is_initiator)
+#endif
     {
       ipsec_mk_key (&a.loc_ikey, child->sk_ai, vec_len (child->sk_ai));
       ipsec_mk_key (&a.rem_ikey, child->sk_ar, vec_len (child->sk_ar));
@@ -2683,10 +2779,6 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
 	    }
 	  vec_free (sa->del);
 	  sa->del = 0;
-#ifdef FLEXIWAN_FIX
-    vlib_node_t *node = vlib_get_node_by_name (km->vlib_main, (u8 *)"ikev2-manager-process");
-    vlib_process_signal_event_mt (km->vlib_main, node->index, 0, ~0);
-#endif /* FLEXIWAN_FIX */
 	}
       /* received N(AUTHENTICATION_FAILED) */
       else if (sa->state == IKEV2_STATE_AUTH_FAILED)
@@ -2712,7 +2804,25 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
     {
       if (sa->is_initiator)
 	{
-
+#ifdef FLEXIWAN_FEATURE
+    if (!ike_hdr_is_request (ike))
+	    {
+        if (vec_len (sa->rekey) > 0)
+        {
+          ikev2_payload_add_sa (chain, sa->rekey[0].i_proposal);
+          if (sa->rekey->kex)
+            ikev2_payload_add_ke (chain, sa->dh_group, sa->i_dh_data);
+          ikev2_payload_add_nonce (chain, sa->i_nonce);
+          ikev2_payload_add_ts (chain, sa->rekey[0].tsi,
+              IKEV2_PAYLOAD_TSI);
+          ikev2_payload_add_ts (chain, sa->rekey[0].tsr,
+              IKEV2_PAYLOAD_TSR);
+          vec_del1 (sa->rekey, 0);
+        }
+      }
+      else
+      {
+#endif
 	  ikev2_sa_proposal_t *proposals = (ikev2_sa_proposal_t *) user;
 	  ikev2_notify_t notify;
 	  u8 *data = vec_new (u8, 4);
@@ -2735,6 +2845,9 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
 				      &notify);
 
 	  vec_free (data);
+#ifdef FLEXIWAN_FEATURE
+      }
+#endif
 	}
       else
 	{
@@ -3143,6 +3256,17 @@ ikev2_node_internal (vlib_main_t * vm,
 		  ipsec_punt_reason[IPSEC_PUNT_IP4_SPI_UDP_0]));
 #endif
 
+#ifdef FLEXIWAN_FIX
+  /* Build IKE buffer from a chain of fragments */
+  u32 bi0 = from[0];
+  u8 *rx_pkt = 0;
+  u32 full_len = vlib_buffer_length_in_chain (vm, b0);
+  vec_validate (rx_pkt, full_len);
+  u32 nbytes = vlib_buffer_contents (vm, bi0, rx_pkt);
+  ike_header_t *ike1 = (ike_header_t *)(rx_pkt + sizeof (*ip40) + sizeof (*udp0));
+  ASSERT (nbytes <= vec_len (rx_pkt));
+#endif
+
       if (is_ip4
 	  && b0->punt_reason == ipsec_punt_reason[IPSEC_PUNT_IP4_SPI_UDP_0])
 	{
@@ -3153,11 +3277,22 @@ ikev2_node_internal (vlib_main_t * vm,
 	  ptr += sizeof (*udp0);
 	  ike0 = (ike_header_t *) ptr;
 	  ip_hdr_sz = sizeof (*ip40);
+#ifdef FLEXIWAN_FIX
+	  if (b0->flags & VLIB_BUFFER_NEXT_PRESENT)
+	  {
+	    clib_memcpy_fast(ike0, ike1, sizeof(ike0));
+	    b0->current_length = 0;
+	  }
+#endif
 	}
       else
 	{
 	  u8 *ipx_hdr = b0->data + vnet_buffer (b0)->l3_hdr_offset;
 	  ike0 = vlib_buffer_get_current (b0);
+#ifdef FLEXIWAN_FIX
+	  ike1 = ike0;
+#endif
+
 	  vlib_buffer_advance (b0, -sizeof (*udp0));
 	  udp0 = vlib_buffer_get_current (b0);
 
@@ -3174,13 +3309,21 @@ ikev2_node_internal (vlib_main_t * vm,
 	  vlib_buffer_advance (b0, -ip_hdr_sz);
 	}
 
-      rlen = b0->current_length - ip_hdr_sz - sizeof (*udp0);
+    rlen = b0->current_length - ip_hdr_sz - sizeof (*udp0);
+#ifdef FLEXIWAN_FIX
+    if (b0->flags & VLIB_BUFFER_NEXT_PRESENT)
+      rlen = full_len - ip_hdr_sz - sizeof (*udp0);
+#endif
 
       /* check for non-esp marker */
       if (*((u32 *) ike0) == 0)
 	{
 	  ike0 =
 	    (ike_header_t *) ((u8 *) ike0 + sizeof (ikev2_non_esp_marker));
+#ifdef FLEXIWAN_FIX
+	  ike1 =
+	    (ike_header_t *) ((u8 *) ike1 + sizeof (ikev2_non_esp_marker));
+#endif
 	  rlen -= sizeof (ikev2_non_esp_marker);
 	  has_non_esp_marker = 1;
 	}
@@ -3379,7 +3522,7 @@ ikev2_node_internal (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE
 		    ikev2_create_tunnel_interface (vm, sa0,
 						   &sa0->childs[0],
-						   p[0], 0, 0, 0);
+						   p[0], 0, 0, 0, 1);
 #else
 		    ikev2_create_tunnel_interface (vm, sa0,
 						   &sa0->childs[0],
@@ -3459,6 +3602,13 @@ ikev2_node_internal (vlib_main_t * vm,
 						    !sa0->is_initiator);
 			if (ch_sa)
 			  {
+#ifdef FLEXIWAN_FIX
+          /* Response DELETE has to contain responder spi */
+          if (sa0->is_initiator)
+            d->spi = ch_sa->i_proposals[0].spi;
+          else
+            d->spi = ch_sa->r_proposals[0].spi;
+#endif
 			    ikev2_delete_tunnel_interface (km->vnet_main,
 							   sa0, ch_sa);
 			    if (!sa0->is_initiator)
@@ -3520,8 +3670,11 @@ ikev2_node_internal (vlib_main_t * vm,
 					       1);
 		  goto dispatch0;
 		}
-
+#ifdef FLEXIWAN_FIX
+	      res = ikev2_process_create_child_sa_req (vm, sa0, ike1, rlen);
+#else
 	      res = ikev2_process_create_child_sa_req (vm, sa0, ike0, rlen);
+#endif
 	      if (!res)
 		{
 		  vlib_node_increment_counter (vm, node->node_index,
@@ -3530,23 +3683,22 @@ ikev2_node_internal (vlib_main_t * vm,
 		  slen = ~0;
 		  goto dispatch0;
 		}
-
 	      if (sa0->rekey)
 		{
 		  if (sa0->rekey[0].protocol_id != IKEV2_PROTOCOL_IKE)
 		    {
 #ifdef FLEXIWAN_FEATURE
           /*  Send DELETE after rekeying phase 2 to release old Child SA */
+          if (sa0->rekey[0].is_initiator)
           {
             ikev2_child_sa_t *c;
             vec_foreach (c, sa0->childs)
 	            ikev2_delete_child_sa_internal (vm, sa0, c, 0);
-			      ikev2_sa_free_all_child_sa (&sa0->childs);
           }
-#else
-                     if (sa0->childs)
-                       ikev2_sa_free_all_child_sa (&sa0->childs);
 #endif
+          if (sa0->childs)
+            ikev2_sa_free_all_child_sa (&sa0->childs);
+
 		      ikev2_child_sa_t *child;
 		      vec_add2 (sa0->childs, child, 1);
 		      clib_memset (child, 0, sizeof (*child));
@@ -3556,13 +3708,13 @@ ikev2_node_internal (vlib_main_t * vm,
 		      child->tsr = sa0->rekey[0].tsr;
 
 #ifdef FLEXIWAN_FEATURE
-          if (sa0->pfs)
+          if (sa0->rekey[0].kex)
           {
             ikev2_complete_sa_data(sa0, NULL, 0);
           }
 
 		      ikev2_create_tunnel_interface (vm, sa0, child, p[0],
-						     child - sa0->childs, 1, sa0->pfs);
+						     child - sa0->childs, 1, sa0->rekey[0].kex, !sa0->rekey[0].rekeying);
 #else
 		      ikev2_create_tunnel_interface (vm, sa0, child, p[0],
 						     child - sa0->childs, 1);
@@ -3688,33 +3840,16 @@ ikev2_node_internal (vlib_main_t * vm,
 
 #ifdef FLEXIWAN_FIX
   {
-    ikev2_profile_t *p;
     ikev2_child_sa_t *chld;
     ikev2_sa_t *sa1 = 0;
     pool_foreach (sa1, ptd->sas)  {
       if (sa1->state != IKEV2_STATE_DELETED)
             continue;
-      u8 reinitiate = (sa1->is_initiator && sa1->profile_index != ~0);
-      u32 profile_index = sa1->profile_index;
       vec_foreach (chld, sa1->childs)
       {
         ikev2_delete_tunnel_interface (km->vnet_main, sa1, chld);
       }
       ikev2_delete_sa (ptd, sa1);
-
-      if (reinitiate && !pool_is_free_index (km->profiles, profile_index))
-        {
-          p = pool_elt_at_index (km->profiles, profile_index);
-          if (p)
-          {
-            clib_error_t *e = ikev2_initiate_sa_init (vm, p->name);
-            if (e)
-            {
-              ikev2_log_error ("%U", format_clib_error, e);
-              clib_error_free (e);
-            }
-          }
-        }
     }
   }
 #endif /* FLEXIWAN_FIX */
@@ -3730,6 +3865,12 @@ ikev2_node_internal (vlib_main_t * vm,
       n_left -= 1;
       next += 1;
       b += 1;
+#ifdef FLEXIWAN_FIX
+      if (rx_pkt)
+      {
+        vec_free (rx_pkt);
+      }
+#endif
     }
 
   vlib_node_increment_counter (vm, node->node_index,
@@ -4948,6 +5089,10 @@ ikev2_initiate_sa_init (vlib_main_t * vm, u8 * name)
   sa.pfs = false;
 #endif
 
+#ifdef FLEXIWAN_FEATURE
+  km->reconnect_enabled = true;
+#endif
+
   ikev2_generate_sa_error_t rc = ikev2_generate_sa_init_data (&sa);
   if (rc != IKEV2_GENERATE_SA_INIT_OK)
     {
@@ -5248,6 +5393,10 @@ ikev2_rekey_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
   vec_reset_length (sa->rekey);
   vec_add2 (sa->rekey, rekey, 1);
 #ifdef FLEXIWAN_FEATURE
+  rekey->is_initiator = sa->is_initiator;
+  rekey->kex = sa->pfs;
+  rekey->rekeying = true;
+  rekey->notify_type = IKEV2_NOTIFY_MSG_REKEY_SA;
   ikev2_sa_proposal_t *proposals = NULL;
   vec_add1 (proposals, csa->i_proposals[0]);
   proposals[0].transforms = vec_dup(proposals[0].transforms);
@@ -5842,7 +5991,46 @@ ikev2_mngr_process_responder_sas (ikev2_sa_t * sa)
   return 0;
 }
 
-#ifdef FLEXIWAN_FIX
+#ifdef FLEXIWAN_FEATURE
+static void
+ikev2_mngr_reconnect(vlib_main_t * vm)
+{
+  ikev2_main_t *km = &ikev2_main;
+  ikev2_main_per_thread_data_t *tkm;
+  ikev2_profile_t *p;
+
+  pool_foreach (p, km->profiles) {
+    bool is_initiated = false;
+    if (p->responder.sw_if_index == ~0) {
+      continue;
+    }
+
+    ikev2_sa_t *sa;
+    pool_foreach (sa, km->sais)  {
+      if (sa->profile_index == p - km->profiles) {
+        is_initiated = true;
+      }
+    }
+
+    vec_foreach (tkm, km->per_thread_data) {
+      pool_foreach (sa, tkm->sas) {
+        if (sa->profile_index == p - km->profiles) {
+          is_initiated = true;
+        }
+      }
+    }
+
+    if (!is_initiated) {
+      clib_error_t *e = ikev2_initiate_sa_init (vm, p->name);
+      if (e)
+      {
+        ikev2_log_error ("%U", format_clib_error, e);
+        clib_error_free (e);
+      }
+    }
+  }
+}
+
 static uword
 ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
 		       vlib_frame_t * f)
@@ -5858,6 +6046,13 @@ ikev2_mngr_process_fn (vlib_main_t * vm, vlib_node_runtime_t * rt,
       /* process ike child sas */
       ikev2_main_per_thread_data_t *tkm;
       f64 now = vlib_time_now (vm);
+
+#ifdef FLEXIWAN_FEATURE
+      if (km->reconnect_enabled)
+      {
+        ikev2_mngr_reconnect (vm);
+      }
+#endif
 
       vec_foreach (tkm, km->per_thread_data)
       {
