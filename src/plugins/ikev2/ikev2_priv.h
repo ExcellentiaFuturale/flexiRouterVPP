@@ -354,6 +354,12 @@ typedef struct
 
 typedef struct
 {
+#ifdef FLEXIWAN_FEATURE
+  u16 notify_type;
+  u8 kex;
+  u8 is_initiator;
+  u8 rekeying;
+#endif
   u8 protocol_id;
   u32 spi;
   u32 ispi;
@@ -605,6 +611,10 @@ typedef struct
   fib_node_type_t fib_node_type_ikev2_profile;
 
   u32 error_drop_node_index;
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
+#ifdef FLEXIWAN_FEATURE
+  u8 reconnect_enabled;
 #endif /*#ifdef FLEXIWAN_FEATURE*/
 
 } ikev2_main_t;
