@@ -725,7 +725,7 @@ ikev2_calc_child_keys (ikev2_sa_t * sa, ikev2_child_sa_t * child)
 #ifdef FLEXIWAN_FEATURE
   if (vec_len (sa->rekey) > 0)
   {
-    if (sa->rekey[0].is_initiator)
+    if (sa->rekey[0].is_initiator || !sa->is_initiator)
     {
       vec_append (s, sa->i_nonce);
       vec_append (s, sa->r_nonce);
@@ -1542,8 +1542,16 @@ ikev2_process_create_child_sa_rekey (ikev2_sa_t *sa,
      rekeying was initiated not by us */
   rekey->is_initiator = 0;
 
-  rekey->r_proposal = proposal;
-  rekey->i_proposal = ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
+  if (sa->is_initiator)
+  {
+    rekey->r_proposal = proposal;
+    rekey->i_proposal = ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
+  }
+  else
+  {
+    rekey->i_proposal = proposal;
+    rekey->r_proposal = ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
+  }
 
   if (sa->dh_group)
     {
@@ -1559,17 +1567,35 @@ ikev2_process_create_child_sa_rekey (ikev2_sa_t *sa,
 
       vec_free (sa->dh_shared_key);
       vec_free (sa->dh_private_key);
-      vec_free (sa->i_dh_data);
+
+      if (sa->is_initiator)
+      {
+        vec_free (sa->i_dh_data);
+      }
+      else
+      {
+        vec_free (sa->r_dh_data);
+      }
 
       ikev2_generate_dh (sa, tr);
-      rekey->kex = 1;
     }
 
-  vec_reset_length (sa->r_nonce);
-  vec_add (sa->r_nonce, nonce, nonce_len);
+  if (sa->is_initiator)
+  {
+    vec_reset_length (sa->r_nonce);
+    vec_add (sa->r_nonce, nonce, nonce_len);
 
-  vec_validate (sa->i_nonce, nonce_len - 1);
-  RAND_bytes ((u8 *) sa->i_nonce, nonce_len);
+    vec_validate (sa->i_nonce, nonce_len - 1);
+    RAND_bytes ((u8 *) sa->i_nonce, nonce_len);
+  }
+  else
+  {
+    vec_reset_length (sa->i_nonce);
+    vec_add (sa->i_nonce, nonce, nonce_len);
+
+    vec_validate (sa->r_nonce, nonce_len - 1);
+    RAND_bytes ((u8 *) sa->r_nonce, nonce_len);
+  }
 
   rekey->tsi = tsi;
   rekey->tsr = tsr;
@@ -1632,7 +1658,14 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE
       else if (payload == IKEV2_PAYLOAD_KE)
 	{
-	  ikev2_parse_ke_payload (ikep, current_length, sa, &sa->r_dh_data);
+    if (sa->is_initiator)
+    {
+	    ikev2_parse_ke_payload (ikep, current_length, sa, &sa->r_dh_data);
+    }
+    else
+    {
+      ikev2_parse_ke_payload (ikep, current_length, sa, &sa->i_dh_data);
+    }
 	  kex = true;
 	}
 #endif
@@ -2854,6 +2887,8 @@ ikev2_generate_message (vlib_buffer_t * b, ikev2_sa_t * sa,
 	  if (vec_len (sa->rekey) > 0)
 	    {
 	      ikev2_payload_add_sa (chain, sa->rekey[0].r_proposal);
+        if (sa->rekey->kex)
+          ikev2_payload_add_ke (chain, sa->dh_group, sa->r_dh_data);
 	      ikev2_payload_add_nonce (chain, sa->r_nonce);
 	      ikev2_payload_add_ts (chain, sa->rekey[0].tsi,
 				    IKEV2_PAYLOAD_TSI);
@@ -3710,7 +3745,10 @@ ikev2_node_internal (vlib_main_t * vm,
 #ifdef FLEXIWAN_FEATURE
           if (sa0->rekey[0].kex)
           {
-            ikev2_complete_sa_data(sa0, NULL, 0);
+            if (sa0->is_initiator)
+            {
+              ikev2_complete_sa_data(sa0, NULL, 0);
+            }
           }
 
 		      ikev2_create_tunnel_interface (vm, sa0, child, p[0],
@@ -4338,7 +4376,7 @@ delete_sa:
 #else
   vec_foreach (c, sa->childs)
     ikev2_delete_tunnel_interface (km->vnet_main, sa, c);
-
+#endif
   u64 rspi = sa->rspi;
   ikev2_sa_free_all_vec (sa);
   uword *p = hash_get (tkm->sa_by_rspi, rspi);
@@ -4347,7 +4385,6 @@ delete_sa:
       hash_unset (tkm->sa_by_rspi, rspi);
       pool_put (tkm->sas, sa);
     }
-#endif
 }
 
 static void
