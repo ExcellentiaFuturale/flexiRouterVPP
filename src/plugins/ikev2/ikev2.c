@@ -1553,7 +1553,7 @@ ikev2_process_create_child_sa_rekey (ikev2_sa_t *sa,
     rekey->r_proposal = ikev2_select_proposal (proposal, IKEV2_PROTOCOL_ESP);
   }
 
-  if (sa->dh_group)
+  if (rekey->kex)
     {
       tr =
 	ikev2_sa_get_td_for_type (rekey->i_proposal, IKEV2_TRANSFORM_TYPE_DH);
