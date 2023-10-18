@@ -1721,6 +1721,9 @@ ikev2_process_create_child_sa_req (vlib_main_t * vm,
   if (!nonce)
     goto cleanup_and_exit;
 
+  if (!proposal)
+    goto cleanup_and_exit;
+
   if (ike_hdr_is_response (ike) && proposal
       && proposal->protocol_id == IKEV2_PROTOCOL_ESP)
 #else
