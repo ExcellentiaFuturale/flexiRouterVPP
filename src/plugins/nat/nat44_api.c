@@ -27,6 +27,12 @@
  *   - nat_interface_specific_address_selection : Feature to select NAT address
  *     based on the output interface assigned to the packet. This ensures using
  *     respective interface address for NAT (Provides multiwan-dia support)
+ *
+ *   - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *     The match criteria is defined as ACLs and attached to the interfaces.
+ *     The ACLs are encoded with the value that points to one of the nat44-1to1
+ *     actions. The feature checks for match in both in2out and out2in
+ *     directions and applies NAT on a match.
  */
 /**
  * @file
@@ -51,6 +57,10 @@
 
 #include <nat/nat44/inlines.h>
 #include <nat/nat44/ed_inlines.h>
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+#include <nat/nat44_1to1.h>
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 #define REPLY_MSG_ID_BASE sm->msg_id_base
 #include <vlibapi/api_helper_macros.h>
@@ -1397,7 +1407,11 @@ send_nat44_user_session_details (snat_session_t * s,
     {
       clib_memcpy (rmp->ext_host_address, &s->ext_host_addr, 4);
       rmp->ext_host_port = s->ext_host_port;
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+      if (is_twice_nat_session (s) || is_nat44_1to1_session (s))
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (is_twice_nat_session (s))
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 	{
 	  clib_memcpy (rmp->ext_host_nat_address, &s->ext_host_nat_addr, 4);
 	  rmp->ext_host_nat_port = s->ext_host_nat_port;
@@ -1752,6 +1766,85 @@ static void
 
   vl_api_send_msg (reg, (u8 *) rmp);
 }
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+/* API Handler for add / delete of NAT44 1to1 Actions */
+static void
+  vl_api_nat44_1to1_add_del_acl_actions_t_handler
+  (vl_api_nat44_1to1_add_del_acl_actions_t * mp)
+{
+  snat_main_t *sm = &snat_main;
+  vl_api_nat44_1to1_add_del_acl_actions_reply_t *rmp;
+  i32 rv = 0;
+
+  if (sm->endpoint_dependent)
+    {
+      if (mp->is_add)
+        rv = nat44_ed_1to1_add_del_acl_actions
+          (clib_net_to_host_u32 (mp->count), mp->actions);
+      else
+        rv = nat44_ed_1to1_add_del_acl_actions (0, NULL);
+    }
+  else
+    rv = VNET_API_ERROR_UNSUPPORTED;
+
+  REPLY_MACRO (VL_API_NAT44_1TO1_ADD_DEL_ACL_ACTIONS_REPLY);
+}
+
+
+/* API Handler for attach / detach of NAT44 1to1 Match ACLs */
+static void
+  vl_api_nat44_1to1_attach_detach_match_acls_t_handler
+  (vl_api_nat44_1to1_attach_detach_match_acls_t * mp)
+{
+  snat_main_t *sm = &snat_main;
+  vl_api_nat44_1to1_attach_detach_match_acls_reply_t *rmp;
+  i32 rv = 0;
+
+  VALIDATE_SW_IF_INDEX (mp);
+  if (sm->endpoint_dependent)
+    {
+      uword *seen_acl_bitmap = 0;
+      u32 * in_acls = NULL, * out_acls = NULL;
+      u32 acl_index;
+      u32 total_acl_count = clib_net_to_host_u32 (mp->total_acl_count);
+      u32 in_acl_count = clib_net_to_host_u32 (mp->input_acl_count);
+      for (u32 i = 0; i < total_acl_count; i++)
+        {
+          acl_index = clib_net_to_host_u32 (mp->acls[i]);
+          /* Check if ACLs exist */
+          if (!sm->acl_plugin.acl_exists (acl_index))
+            {
+              rv = VNET_API_ERROR_NO_SUCH_ENTRY;
+              break;
+            }
+          /* Check if any ACL is being applied twice */
+          if (clib_bitmap_get (seen_acl_bitmap, acl_index))
+            {
+              rv = VNET_API_ERROR_ENTRY_ALREADY_EXISTS;
+              break;
+            }
+          seen_acl_bitmap = clib_bitmap_set (seen_acl_bitmap, acl_index, 1);
+          if (i < in_acl_count)
+            vec_add1 (in_acls, acl_index);
+          else
+            vec_add1 (out_acls, acl_index);
+        }
+      clib_bitmap_free (seen_acl_bitmap);
+
+      u32 sw_if_index = clib_net_to_host_u32 (mp->sw_if_index);
+      rv = nat44_ed_1to1_attach_detach_match_acls (sw_if_index,
+                                                   in_acls, out_acls);
+      vec_free (in_acls);
+      vec_free (out_acls);
+    }
+  else
+    rv = VNET_API_ERROR_UNSUPPORTED;
+
+  BAD_SW_IF_INDEX_LABEL;
+  REPLY_MACRO (VL_API_NAT44_1TO1_ATTACH_DETACH_MATCH_ACLS_REPLY);
+}
+#endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
 
 /* API definitions */
 #include <vnet/format_fns.h>

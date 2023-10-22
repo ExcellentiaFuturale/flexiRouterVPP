@@ -19,6 +19,13 @@
  *  ACL plugin. Matching ACLs provide the service class and importance
  *  attribute. The classification result is marked in the packet and can be
  *  made use of in other functions like scheduling, policing, marking etc.
+ *
+ * - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *   The match criteria is defined as ACLs and attached to the interfaces.
+ *   The ACLs are encoded with the value that points to one of the nat44-1to1
+ *   actions. The feature checks for match in both in2out and out2in
+ *   directions and applies NAT on a match.
+ *
  */
 
 #ifndef included_acl_inlines_h
@@ -756,5 +763,27 @@ acl_plugin_get_acl_attributes_inline (void * p_acl_main, u32 acl_index,
   return VNET_API_ERROR_NO_SUCH_ENTRY;
 }
 #endif /* FLEXIWAN_FEATURE - acl_based_classification */
+
+#ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
+/*
+ * The function makes required safety checks before returning the user value
+ * associated with the rule
+ */
+always_inline int
+acl_plugin_get_acl_user_value_inline (void * p_acl_main, u32 acl_index,
+				      u32 rule_index, u16 * user_value)
+{
+  acl_main_t * am = p_acl_main;
+  if (!pool_is_free_index (am->acls, acl_index))
+    {
+      if (rule_index < vec_len(am->acls[acl_index].rules))
+	{
+	  *user_value = am->acls[acl_index].rules[rule_index].user_value;
+	  return 0;
+	}
+    }
+  return VNET_API_ERROR_NO_SUCH_ENTRY;
+}
+#endif /* FLEXIWAN_FEATURE - policy_nat44_1to1 */
 
 #endif

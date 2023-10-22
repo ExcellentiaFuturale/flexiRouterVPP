@@ -192,8 +192,14 @@ always_inline index_t
 ipsec_tun_protect_get_sa_out (adj_index_t ai)
 {
   ASSERT (vec_len (ipsec_tun_protect_sa_by_adj_index) > ai);
+#ifndef FLEXIWAN_FIX
+  /* In case of IKEv2, the ike plugin might take ipsec tunnels up and down,
+      so the tunnel adjacencies might be added and removed during the packet
+      handling. So we just add the protection for the sa0=NULL case,
+      when the tunnel interface is down, so the correspondent adjacency was removed.
+  */
   ASSERT (INDEX_INVALID != ipsec_tun_protect_sa_by_adj_index[ai]);
-
+#endif
   return (ipsec_tun_protect_sa_by_adj_index[ai]);
 }
 

@@ -51,6 +51,11 @@
  *  attribute. The classification result is marked in the packet and can be
  *  made use of in other functions like scheduling, policing, marking etc.
  *
+ *  - fix_nat_drop_for_re_entered_packets: In certain packet flow like
+ *  reassembled packets, the packet is looped back into the ip input node.
+ *  In such cases, the already de-NATed packet gets dropped in NAT due to
+ *  lookup failure. The fix validates re_entry packets and prevents nat drop
+ *
  */
 
 #ifndef included_vnet_buffer_h
@@ -62,7 +67,8 @@
  * Flags that are set in the high order bits of ((vlib_buffer*)b)->flags
  *
  */
-#ifdef FLEXIWAN_FEATURE /* acl_based_classification */ 
+#ifdef FLEXIWAN_FEATURE /* acl_based_classification,
+                           fix_nat_drop_for_re_entered_packets*/
 /* Adding flag to indicate if a packet has been classified or not */
 #define foreach_vnet_buffer_flag                        \
   _( 1, L4_CHECKSUM_COMPUTED, "l4-cksum-computed", 1)	\
@@ -86,12 +92,12 @@
   _(19, QOS_DATA_VALID, "qos-data-valid", 0)            \
   _(20, GSO, "gso", 0)                                  \
   _(21, IS_CLASSIFIED, "is-classified", 1)              \
-  _(22, AVAIL1, "avail1", 1)                            \
-  _(23, AVAIL2, "avail2", 1)                            \
-  _(24, AVAIL3, "avail3", 1)                            \
-  _(25, AVAIL4, "avail4", 1)                            \
-  _(26, AVAIL5, "avail5", 1)                            \
-  _(27, AVAIL6, "avail6", 1)
+  _(22, CHECK_NAT_RE_ENTRY, "check-nat-re-entry", 1)    \
+  _(23, AVAIL1, "avail1", 1)                            \
+  _(24, AVAIL2, "avail2", 1)                            \
+  _(25, AVAIL3, "avail3", 1)                            \
+  _(26, AVAIL4, "avail4", 1)                            \
+  _(27, AVAIL5, "avail5", 1)
 
 /*
  * Please allocate the FIRST available bit, redefine
@@ -101,9 +107,10 @@
 
 #define VNET_BUFFER_FLAGS_ALL_AVAIL                                     \
   (VNET_BUFFER_F_AVAIL1 | VNET_BUFFER_F_AVAIL2 | VNET_BUFFER_F_AVAIL3 | \
-   VNET_BUFFER_F_AVAIL4 | VNET_BUFFER_F_AVAIL5 | VNET_BUFFER_F_AVAIL6)
+   VNET_BUFFER_F_AVAIL4 | VNET_BUFFER_F_AVAIL5)
 
-#else  /* FLEXIWAN_FEATURE - acl_based_classification */
+#else  /* FLEXIWAN_FEATURE - acl_based_classification,
+          fix_nat_drop_for_re_entered_packets */
 #define foreach_vnet_buffer_flag                        \
   _( 1, L4_CHECKSUM_COMPUTED, "l4-cksum-computed", 1)	\
   _( 2, L4_CHECKSUM_CORRECT, "l4-cksum-correct", 1)	\
@@ -540,7 +547,11 @@ typedef struct
 
   struct
   {
+#ifdef FLEXIWAN_FIX /* fix_nat_drop_for_re_entered_packets */
+    u16 thread_index;
+#else /* FLEXIWAN_FIX - fix_nat_drop_for_re_entered_packets */
     u16 unused;
+#endif /* FLEXIWAN_FIX - fix_nat_drop_for_re_entered_packets */
     u16 thread_next;
     u32 arc_next;
     u32 ed_out2in_nat_session_index;

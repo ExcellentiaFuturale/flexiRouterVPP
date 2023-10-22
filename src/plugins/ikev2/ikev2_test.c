@@ -1369,6 +1369,98 @@ api_ikev2_set_sa_lifetime (vat_main_t * vam)
   return ret;
 }
 
+#ifdef FLEXIWAN_FEATURE
+static int
+api_ikev2_set_ike_lifetime (vat_main_t * vam)
+{
+  unformat_input_t *i = vam->input;
+  vl_api_ikev2_set_ike_lifetime_t *mp;
+  int ret;
+  u8 *name = 0;
+  u64 lifetime;
+
+  while (unformat_check_input (i) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (i, "%U %lu", unformat_token, valid_chars, &name,
+		    &lifetime))
+	vec_add1 (name, 0);
+      else
+	{
+	  errmsg ("parse error '%U'", format_unformat_error, i);
+	  return -99;
+	}
+    }
+
+  if (!vec_len (name))
+    {
+      errmsg ("profile name must be specified");
+      return -99;
+    }
+
+  if (vec_len (name) > 64)
+    {
+      errmsg ("profile name too long");
+      return -99;
+    }
+
+  M (IKEV2_SET_IKE_LIFETIME, mp);
+
+  clib_memcpy (mp->name, name, vec_len (name));
+  vec_free (name);
+  mp->lifetime = lifetime;
+
+  S (mp);
+  W (ret);
+  return ret;
+}
+#endif
+
+#ifdef FLEXIWAN_FEATURE
+static int
+api_ikev2_set_pfs (vat_main_t * vam)
+{
+  unformat_input_t *i = vam->input;
+  vl_api_ikev2_set_pfs_t *mp;
+  int ret;
+  u8 *name = 0;
+  bool enable;
+
+  while (unformat_check_input (i) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (i, "%U %u", unformat_token, valid_chars, &name,
+		    &enable))
+	vec_add1 (name, 0);
+      else
+	{
+	  errmsg ("parse error '%U'", format_unformat_error, i);
+	  return -99;
+	}
+    }
+
+  if (!vec_len (name))
+    {
+      errmsg ("profile name must be specified");
+      return -99;
+    }
+
+  if (vec_len (name) > 64)
+    {
+      errmsg ("profile name too long");
+      return -99;
+    }
+
+  M (IKEV2_SET_PFS, mp);
+
+  clib_memcpy (mp->name, name, vec_len (name));
+  vec_free (name);
+  mp->enable = enable;
+
+  S (mp);
+  W (ret);
+  return ret;
+}
+#endif
+
 static int
 api_ikev2_initiate_sa_init (vat_main_t * vam)
 {

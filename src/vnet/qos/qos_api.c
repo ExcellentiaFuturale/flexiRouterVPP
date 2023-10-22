@@ -408,6 +408,8 @@ vl_api_qos_mark_buffer_metadata_map_t_handler
   for (i32 i = 0; i < count; i++)
     hash_set (map, ntohl (mp->key_value_pairs[i].key),
               ntohl (mp->key_value_pairs[i].value));
+  //update back context - passed map value can change during hash_* ops
+  qos_mark_buffer_metadata_map[sw_if_index] = (uword) map;
 
   BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_QOS_MARK_BUFFER_METADATA_MAP_REPLY);
@@ -423,7 +425,7 @@ vl_api_qos_mark_buffer_metadata_map_delete_t_handler
   u32 count = ntohl(mp->count);
   u32 sw_if_index = ntohl (mp->sw_if_index);
 
-  if ((vec_len (qos_mark_buffer_metadata_map) >= sw_if_index) &&
+  if ((vec_len (qos_mark_buffer_metadata_map) > sw_if_index) &&
       (qos_mark_buffer_metadata_map[sw_if_index]))
     {
       void * map = (void *) qos_mark_buffer_metadata_map[sw_if_index];
@@ -431,7 +433,6 @@ vl_api_qos_mark_buffer_metadata_map_delete_t_handler
         {
           /* On empty count - delete the map */
           hash_free (map);
-          qos_mark_buffer_metadata_map[sw_if_index] = 0;
         }
       else
         {
@@ -439,6 +440,8 @@ vl_api_qos_mark_buffer_metadata_map_delete_t_handler
           for (i32 i = 0; i < count; i++)
             hash_unset (map, ntohl (mp->keys[i]));
         }
+      //update back context - passed map value can change during hash_* ops
+      qos_mark_buffer_metadata_map[sw_if_index] = (uword) map;
     }
   BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_QOS_MARK_BUFFER_METADATA_MAP_DELETE_REPLY);

@@ -420,6 +420,39 @@ autoreply define ikev2_set_sa_lifetime
   option status="in_progress";
 };
 
+/** \brief IKEv2: Set Child IKE lifetime, limited by time and/or data
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param name - IKEv2 profile name
+    @param lifetime - SA maximum life time in seconds (0 to disable)
+*/
+autoreply define ikev2_set_ike_lifetime
+{
+  u32 client_index;
+  u32 context;
+
+  string name[64];
+  u64 lifetime;
+  option vat_help = "<profile_name> <seconds>";
+  option status="in_progress";
+};
+
+/** \brief IKEv2: Enable/disable PFS
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param name - IKEv2 profile name
+    @param enable - Flag indicating on/off of the PFS feature
+*/
+autoreply define ikev2_set_pfs
+{
+  u32 client_index;
+  u32 context;
+
+  string name[64];
+  bool enable;
+  option status="in_progress";
+};
+
 /** \brief IKEv2: Initiate the SA_INIT exchange
     @param client_index - opaque cookie to identify the sender
     @param context - sender context, to match reply w/ request

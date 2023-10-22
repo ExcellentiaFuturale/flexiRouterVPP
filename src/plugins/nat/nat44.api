@@ -13,6 +13,16 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2023 FlexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *  - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+ *  The match criteria is defined as ACLs and attached to the interfaces. The
+ *  ACLs are encoded with the value that points to one of the nat44-1to1
+ *  actions. The feature checks for match in both in2out and out2in directions
+ *  and applies NAT on a match.
+ */
+
 option version = "5.2.0";
 import "vnet/ip/ip_types.api";
 import "vnet/interface_types.api";
@@ -1182,3 +1192,49 @@ define nat44_forwarding_is_enabled_reply {
   u32 context;
   bool enabled;
 };
+
+/** ifdef FLEXIWAN_FEATURE Feature name: policy_nat44_1to1 */
+
+/** @brief API to Add / Delete NAT44 1to1 ACL Actions on the interface
+    @param client_index - Opaque cookie to identify the sender
+    @param context - Sender context, to match reply w/ request
+    @param is_add - Add/Delete flag
+    @param count - Total number of NAT44 1to1 actions 
+    @param actions - Array of NAT actions
+*/
+
+typedef nat44_1to1_acl_action
+{
+  vl_api_ip4_prefix_t nat_src;
+  vl_api_ip4_prefix_t nat_dst;
+};
+
+autoreply define nat44_1to1_add_del_acl_actions {
+    u32 client_index;
+    u32 context;
+    bool is_add;
+    u32 count;
+    vl_api_nat44_1to1_acl_action_t actions[count];
+};
+
+/** @brief API to Attach / Detach NAT44 1to1 Match ACLs on the interface
+    @param client_index - Opaque cookie to identify the sender
+    @param context - Sender context, to match reply w/ request
+    @param is_add - Attach/Detach flag
+    @param sw_if_index - Index of the interface to be enabled/disabled
+    @param input_acl_count - Number of input matach ACLs in the acls array
+    @param total_acl_count - Total number of ACLs in the acls array
+    @param acls - Array of Match ACLs
+*/
+
+autoreply define nat44_1to1_attach_detach_match_acls {
+    u32 client_index;
+    u32 context;
+    bool is_add;
+    vl_api_interface_index_t sw_if_index;
+    u32 input_acl_count;
+    u32 total_acl_count;
+    u32 acls[total_acl_count];
+};
+
+/** endif FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */

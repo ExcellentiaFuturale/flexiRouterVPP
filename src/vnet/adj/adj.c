@@ -13,6 +13,12 @@
  * limitations under the License.
  */
 
+ /*
+ *  Copyright (C) 2023 flexiWAN Ltd.
+ *  List of fixes and changes made for FlexiWAN (denoted by FLEXIWAN_FIX and FLEXIWAN_FEATURE flags):
+ *   - Ported "fib: fix adj_get crash" Ibe29854137ee9680f7947450eb7e256b8c0ade31 from v23.10-rc0.
+*/
+
 #include <vnet/adj/adj.h>
 #include <vnet/adj/adj_internal.h>
 #include <vnet/adj/adj_glean.h>
@@ -308,12 +314,18 @@ adj_last_lock_gone (ip_adjacency_t *adj)
 	break;
     }
 
+#ifndef FLEXIWAN_FIX
     vlib_worker_thread_barrier_release(vm);
+#endif
 
     fib_node_deinit(&adj->ia_node);
     ASSERT(0 == vec_len(adj->ia_delegates));
     vec_free(adj->ia_delegates);
     pool_put(adj_pool, adj);
+
+#ifdef FLEXIWAN_FIX
+    vlib_worker_thread_barrier_release(vm);
+#endif
 }
 
 u32

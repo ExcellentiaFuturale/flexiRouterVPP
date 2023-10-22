@@ -382,6 +382,12 @@ typedef struct
 
 typedef struct
 {
+#ifdef FLEXIWAN_FEATURE
+  u16 notify_type;
+  u8 kex;
+  u8 is_initiator;
+  u8 rekeying;
+#endif
   u8 protocol_id;
   u32 spi;
   u32 ispi;
@@ -415,6 +421,12 @@ typedef struct
   u64 lifetime_maxdata;
   u32 lifetime_jitter;
   u32 handover;
+#ifdef FLEXIWAN_FEATURE
+  u64 ike_lifetime;  /* Phase 1 timeout */
+#endif
+#ifdef FLEXIWAN_FEATURE
+  bool pfs;
+#endif
   u16 ipsec_over_udp_port;
 #ifdef FLEXIWAN_FEATURE
   fib_route_path_t gw;  /*The next hope to be used for IKE traffic - takes care of multi-WAN*/
@@ -542,6 +554,16 @@ typedef struct
   /* is NAT traversal mode */
   ikev2_natt_state_t natt_state;
   u8 keys_generated;
+
+#ifdef FLEXIWAN_FEATURE
+  /* lifetime data */
+  f64 time_to_expiration;
+  u8 is_expired;
+#endif
+
+#ifdef FLEXIWAN_FEATURE
+  bool pfs;
+#endif
 } ikev2_sa_t;
 
 
@@ -617,6 +639,10 @@ typedef struct
   fib_node_type_t fib_node_type_ikev2_profile;
 
   u32 error_drop_node_index;
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
+#ifdef FLEXIWAN_FEATURE
+  u8 reconnect_enabled;
 #endif /*#ifdef FLEXIWAN_FEATURE*/
 
 } ikev2_main_t;

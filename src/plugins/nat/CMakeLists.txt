@@ -11,6 +11,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#[[
+ Copyright (C) 2023 FlexiWAN Ltd.
+ List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+  - policy_nat44_1to1 : The feature programs a list of nat4-1to1 actions.
+  The match criteria is defined as ACLs and attached to the interfaces. The
+  ACLs are encoded with the value that points to one of the nat44-1to1
+  actions. The feature checks for match in both in2out and out2in directions
+  and applies NAT on a match.
+]]
+
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 add_vpp_library(nat
@@ -29,6 +39,9 @@ add_vpp_plugin(nat
   SOURCES
   nat.c
   nat44_api.c
+  #[[/* Start - FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 *]]
+  nat44_1to1.c
+  #[[/* End - FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 *]]
   in2out.c
   in2out_ed.c
   out2in.c

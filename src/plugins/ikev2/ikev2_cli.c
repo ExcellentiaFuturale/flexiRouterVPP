@@ -168,6 +168,13 @@ format_ikev2_sa (u8 * s, va_list * va)
   }
 #endif /* FLEXIWAN_FEATURE */
 
+#ifdef FLEXIWAN_FEATURE
+    if (sa->pfs)
+      s = format(s, "\n pfs: on");
+    else
+      s = format(s, "\n pfs: off");
+#endif
+
   s = format (s, "\n%U", format_white_space, indent);
 
   tr = ikev2_sa_get_td_for_type (sa->r_proposals, IKEV2_TRANSFORM_TYPE_ENCR);
@@ -561,6 +568,26 @@ ikev2_profile_add_del_command_fn (vlib_main_t * vm,
 	    ikev2_set_profile_sa_lifetime (vm, name, tmp4, tmp1, tmp2, tmp5);
 	  goto done;
 	}
+#ifdef FLEXIWAN_FEATURE
+      else if (unformat (line_input, "set %U ike-lifetime %lu",
+			 unformat_ikev2_token, &name,
+			 &tmp1))
+	{
+	  r =
+	    ikev2_set_profile_ike_lifetime (vm, name, tmp1);
+	  goto done;
+	}
+#endif
+#ifdef FLEXIWAN_FEATURE
+      else if (unformat (line_input, "set %U pfs %s",
+			 unformat_ikev2_token, &name, &data))
+	{
+    bool enable = !strcmp ((char *) data, "on");
+	  r =
+	    ikev2_set_profile_pfs (vm, name, enable);
+	  goto done;
+	}
+#endif
       else if (unformat (line_input, "set %U udp-encap",
 			 unformat_ikev2_token, &name))
 	{
@@ -645,6 +672,12 @@ VLIB_CLI_COMMAND (ikev2_profile_add_del_command, static) = {
       "[esp-integ-alg <integ alg>]\n"
 #endif /* FLEXIWAN_FEATURE - configurable_esn_and_replay_check */
     "ikev2 profile set <id> sa-lifetime <seconds> <jitter> <handover> <max bytes>\n"
+#ifdef FLEXIWAN_FEATURE
+    "ikev2 profile set <id> ike-lifetime <seconds>\n"
+#endif
+#ifdef FLEXIWAN_FEATURE
+    "ikev2 profile set <id> pfs [on|off]\n"
+#endif
     "ikev2 profile set <id> disable natt\n",
     .function = ikev2_profile_add_del_command_fn,
 };
@@ -741,6 +774,17 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
 
     vlib_cli_output(vm, "  lifetime %d jitter %d handover %d maxdata %d",
                     p->lifetime, p->lifetime_jitter, p->handover, p->lifetime_maxdata);
+
+#ifdef FLEXIWAN_FEATURE
+    vlib_cli_output(vm, "  ike-lifetime %d", p->ike_lifetime);
+#endif
+
+#ifdef FLEXIWAN_FEATURE
+    if (p->pfs)
+      vlib_cli_output(vm, "  pfs on");
+    else
+      vlib_cli_output(vm, "  pfs off");
+#endif
 
 #ifdef FLEXIWAN_FEATURE
     vlib_cli_output(vm, "%U", format_fib_gateway, "  ", &p->gw, p->pathlist_index, &p->dpo);
@@ -867,7 +911,11 @@ ikev2_initiate_command_fn (vlib_main_t * vm,
 	}
       else if (unformat (line_input, "del-sa %lx", &tmp2))
 	{
-	  r = ikev2_initiate_delete_ike_sa (vm, tmp2);
+#ifdef FLEXIWAN_FEATURE
+	  r = ikev2_initiate_delete_ike_sa (vm, tmp2, 0);
+#else
+    r = ikev2_initiate_delete_ike_sa (vm, tmp2);
+#endif
 	  goto done;
 	}
       else if (unformat (line_input, "rekey-child-sa %x", &tmp1))
