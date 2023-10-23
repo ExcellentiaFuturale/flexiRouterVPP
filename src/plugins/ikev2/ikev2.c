@@ -4310,14 +4310,10 @@ ikev2_initiate_delete_ike_sa_internal (vlib_main_t * vm,
 				       ikev2_sa_t * sa, u8 send_notification)
 #endif
 {
-#ifndef FLEXIWAN_FIX
   ikev2_main_t *km = &ikev2_main;
-#endif
   ip_address_t *src, *dst;
   vlib_buffer_t *b0;
-#ifndef FLEXIWAN_FIX
   ikev2_child_sa_t *c;
-#endif
 
   /* Create the Initiator notification for IKE SA removal */
   ike_header_t *ike0;
@@ -4374,12 +4370,9 @@ delete_sa:
     }
 #endif
   /* delete local SA */
-#ifdef FLEXIWAN_FIX
   ikev2_set_state (sa, IKEV2_STATE_DELETED);
-#else
   vec_foreach (c, sa->childs)
     ikev2_delete_tunnel_interface (km->vnet_main, sa, c);
-#endif
   u64 rspi = sa->rspi;
   ikev2_sa_free_all_vec (sa);
   uword *p = hash_get (tkm->sa_by_rspi, rspi);
