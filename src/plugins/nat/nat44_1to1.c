@@ -258,6 +258,37 @@ nat44_ed_match_1to1_mapping (vlib_buffer_t *b, u8 out2in,
   return 1;
 }
 
+
+u32
+nat44_ed_matches_1to1_action (ip4_address_t src_addr, ip4_address_t dst_addr)
+{
+  /*
+   * Check if the given source and destination IP addresses match any of the
+   * configured NAT actions
+   * returns 1 if match found
+   */
+  for (u32 i = 0; i < vec_len (snat_main.nat44_1to1_acl_actions); i++)
+    {
+      nat44_1to1_acl_action_t *action = &(snat_main.nat44_1to1_acl_actions[i]);
+      if (action->src_prefix_len == 0)
+        src_addr.as_u32 = 0;
+      else if (action->src_prefix_len < 32)
+        src_addr.as_u32 &= clib_host_to_net_u32
+          (0xFFFFFFFF << (32 - action->src_prefix_len));
+      if (src_addr.as_u32 == action->nat_src_prefix.as_u32)
+        {
+          if (action->dst_prefix_len == 0)
+            dst_addr.as_u32 = 0;
+          else if (action->dst_prefix_len < 32)
+            dst_addr.as_u32 &= clib_host_to_net_u32
+              (0xFFFFFFFF << (32 - action->dst_prefix_len));
+          if (dst_addr.as_u32 == action->nat_dst_prefix.as_u32)
+            return 1;
+        }
+    }
+  return 0;
+}
+
 /*
  * fd.io coding-style-patch-verification: ON
  *

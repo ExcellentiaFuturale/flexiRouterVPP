@@ -32,6 +32,9 @@ nat44_ed_match_1to1_mapping (vlib_buffer_t * b, u8 out2in,
                              ip4_address_t *out_src_addr,
                              ip4_address_t *out_nat_addr);
 
+u32
+nat44_ed_matches_1to1_action (ip4_address_t src_addr, ip4_address_t dst_addr);
+
 #endif /* __included_nat44_1to1_h__ */
 /*
  * fd.io coding-style-patch-verification: ON

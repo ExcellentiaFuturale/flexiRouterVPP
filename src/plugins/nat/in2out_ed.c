@@ -750,10 +750,6 @@ nat44_ed_not_translate_output_feature (snat_main_t * sm, ip4_header_t * ip,
 	     tx_fib_index, ip->protocol);
   if (!clib_bihash_search_16_8 (&sm->out2in_ed, &kv, &value))
     {
-      ASSERT (thread_index == ed_value_get_thread_index (&value));
-      s =
-	pool_elt_at_index (tsm->sessions,
-			   ed_value_get_session_index (&value));
 #ifdef FLEXIWAN_FEATURE /* Feature name: policy_nat44_1to1 */
       /*
        * Allow output feature NAT for NAT44-1to1 sessions that were setup
@@ -763,8 +759,26 @@ nat44_ed_not_translate_output_feature (snat_main_t * sm, ip4_header_t * ip,
        * already matched NAT44-1to1 (and have sessions)
        * Example: Allow [NAT44-1to1 applied on LAN] + [WAN-NAT]
        */ 
+      if ((thread_index != ed_value_get_thread_index (&value)) &&
+          (nat44_ed_matches_1to1_action (ip->src_address, ip->dst_address)))
+        {
+          /*
+           * The session match is from NAT44-1to1. Proceed with new session
+           * creation on the output-feature interface
+           */
+          return 0;
+        }
+      ASSERT (thread_index == ed_value_get_thread_index (&value));
+      s =
+	pool_elt_at_index (tsm->sessions,
+			   ed_value_get_session_index (&value));
       if (is_nat44_1to1_session (s))
         return 0;
+#else /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
+      ASSERT (thread_index == ed_value_get_thread_index (&value));
+      s =
+	pool_elt_at_index (tsm->sessions,
+			   ed_value_get_session_index (&value));
 #endif /* FLEXIWAN_FEATURE - Feature name: policy_nat44_1to1 */
       if (nat44_is_ses_closed (s)
 	  && (!s->tcp_closed_timestamp || now >= s->tcp_closed_timestamp))
