@@ -3294,17 +3294,6 @@ ikev2_node_internal (vlib_main_t * vm,
 		  ipsec_punt_reason[IPSEC_PUNT_IP4_SPI_UDP_0]));
 #endif
 
-#ifdef FLEXIWAN_FIX
-  /* Build IKE buffer from a chain of fragments */
-  u32 bi0 = from[0];
-  u8 *rx_pkt = 0;
-  u32 full_len = vlib_buffer_length_in_chain (vm, b0);
-  vec_validate (rx_pkt, full_len);
-  u32 nbytes = vlib_buffer_contents (vm, bi0, rx_pkt);
-  ike_header_t *ike1 = (ike_header_t *)(rx_pkt + sizeof (*ip40) + sizeof (*udp0));
-  ASSERT (nbytes <= vec_len (rx_pkt));
-#endif
-
       if (is_ip4
 	  && b0->punt_reason == ipsec_punt_reason[IPSEC_PUNT_IP4_SPI_UDP_0])
 	{
@@ -3315,21 +3304,11 @@ ikev2_node_internal (vlib_main_t * vm,
 	  ptr += sizeof (*udp0);
 	  ike0 = (ike_header_t *) ptr;
 	  ip_hdr_sz = sizeof (*ip40);
-#ifdef FLEXIWAN_FIX
-	  if (b0->flags & VLIB_BUFFER_NEXT_PRESENT)
-	  {
-	    clib_memcpy_fast(ike0, ike1, sizeof(ike0));
-	    b0->current_length = 0;
-	  }
-#endif
 	}
       else
 	{
 	  u8 *ipx_hdr = b0->data + vnet_buffer (b0)->l3_hdr_offset;
 	  ike0 = vlib_buffer_get_current (b0);
-#ifdef FLEXIWAN_FIX
-	  ike1 = ike0;
-#endif
 
 	  vlib_buffer_advance (b0, -sizeof (*udp0));
 	  udp0 = vlib_buffer_get_current (b0);
@@ -3348,20 +3327,11 @@ ikev2_node_internal (vlib_main_t * vm,
 	}
 
     rlen = b0->current_length - ip_hdr_sz - sizeof (*udp0);
-#ifdef FLEXIWAN_FIX
-    if (b0->flags & VLIB_BUFFER_NEXT_PRESENT)
-      rlen = full_len - ip_hdr_sz - sizeof (*udp0);
-#endif
-
       /* check for non-esp marker */
       if (*((u32 *) ike0) == 0)
 	{
 	  ike0 =
 	    (ike_header_t *) ((u8 *) ike0 + sizeof (ikev2_non_esp_marker));
-#ifdef FLEXIWAN_FIX
-	  ike1 =
-	    (ike_header_t *) ((u8 *) ike1 + sizeof (ikev2_non_esp_marker));
-#endif
 	  rlen -= sizeof (ikev2_non_esp_marker);
 	  has_non_esp_marker = 1;
 	}
@@ -3708,11 +3678,7 @@ ikev2_node_internal (vlib_main_t * vm,
 					       1);
 		  goto dispatch0;
 		}
-#ifdef FLEXIWAN_FIX
-	      res = ikev2_process_create_child_sa_req (vm, sa0, ike1, rlen);
-#else
-	      res = ikev2_process_create_child_sa_req (vm, sa0, ike0, rlen);
-#endif
+    res = ikev2_process_create_child_sa_req (vm, sa0, ike0, rlen);
 	      if (!res)
 		{
 		  vlib_node_increment_counter (vm, node->node_index,
@@ -3906,12 +3872,6 @@ ikev2_node_internal (vlib_main_t * vm,
       n_left -= 1;
       next += 1;
       b += 1;
-#ifdef FLEXIWAN_FIX
-      if (rx_pkt)
-      {
-        vec_free (rx_pkt);
-      }
-#endif
     }
 
   vlib_node_increment_counter (vm, node->node_index,
