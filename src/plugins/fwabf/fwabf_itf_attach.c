@@ -485,7 +485,7 @@ fwabf_input_ip4 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
         {
           const u32*            attachments0;
           const fwabf_itf_attach_t* fia0 = 0;
-          ip_lookup_next_t      next0 = IP_LOOKUP_NEXT_DROP;
+          ip_lookup_next_t      next0 = IP_LOOKUP_N_NEXT;
           vlib_buffer_t*        b0;
           fa_5tuple_opaque_t    fa_5tuple0;
           const dpo_id_t*       dpo0;
@@ -641,11 +641,13 @@ fwabf_input_ip4 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                 {
                   dpo0 = load_balance_get_bucket_i (lb0, 0);
                 }
-
-              next0 = dpo0->dpoi_next_node;
-              vnet_buffer (b0)->ip.adj_index[VLIB_TX] = dpo0->dpoi_index;
+              // Use next index if it exists else packet proceeds to ip4-lookup
+              if (dpo0->dpoi_next_node < IP_LOOKUP_N_NEXT)
+                {
+                  next0 = dpo0->dpoi_next_node;
+                  vnet_buffer (b0)->ip.adj_index[VLIB_TX] = dpo0->dpoi_index;
+                }
             }
-
 
           if (PREDICT_FALSE (b0->flags & VLIB_BUFFER_IS_TRACED))
             {
@@ -691,7 +693,7 @@ fwabf_input_ip6 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
         {
           const u32*            attachments0;
           const fwabf_itf_attach_t* fia0 = 0;
-          ip_lookup_next_t      next0 = IP_LOOKUP_NEXT_DROP;
+          ip_lookup_next_t      next0 = IP6_LOOKUP_N_NEXT;
           vlib_buffer_t*        b0;
           fa_5tuple_opaque_t    fa_5tuple0;
           const dpo_id_t*       dpo0;
@@ -830,14 +832,18 @@ fwabf_input_ip6 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                   dpo0 = load_balance_get_bucket_i (lb0, 0);
                 }
 
-              next0 = dpo0->dpoi_next_node;
-              vnet_buffer (b0)->ip.adj_index[VLIB_TX] = dpo0->dpoi_index;
-
-              /* Only process the HBH Option Header if explicitly configured to do so */
-              if (PREDICT_FALSE(ip60->protocol == IP_PROTOCOL_IP6_HOP_BY_HOP_OPTIONS))
+              // Use next index if it exists else packet proceeds to ip6-lookup
+              if (dpo0->dpoi_next_node < IP6_LOOKUP_N_NEXT)
                 {
-                  next0 = (dpo_is_adj (dpo0) && im->hbh_enabled) ?
-                          (ip_lookup_next_t) IP6_LOOKUP_NEXT_HOP_BY_HOP : next0;
+                  next0 = dpo0->dpoi_next_node;
+                  vnet_buffer (b0)->ip.adj_index[VLIB_TX] = dpo0->dpoi_index;
+
+                  /* Only process the HBH Option Header if explicitly configured to do so */
+                  if (PREDICT_FALSE(ip60->protocol == IP_PROTOCOL_IP6_HOP_BY_HOP_OPTIONS))
+                    {
+                      next0 = (dpo_is_adj (dpo0) && im->hbh_enabled) ?
+                        (ip_lookup_next_t) IP6_LOOKUP_NEXT_HOP_BY_HOP : next0;
+                    }
                 }
             }
 
@@ -883,6 +889,60 @@ static char *fwabf_error_strings[] = {
 #undef fwabf_error
 };
 
+
+/* The below is a copy of ip*-lookup's next nodes. Additionally it is changed
+ * to have "ip4-lookup" as last node. This node is to be used to forward
+ * packets that have [NO ABF-Match + The route's DPO next node index is higher
+ * than the max next nodes].
+ *
+ * In case of "ip4-lookup" node working, the next nodes are dynamically added
+ * based on new route types. Such dynamic next node updates are not happenning
+ * in the case of fwabf. Till fwabf is enahnced to work for the dynamic next
+ * node additions, the plan is to forward the packets destined for higher next
+ * node indexes to ip*-lookup node.
+ *
+ * Example: When a DPO_INTERFACE_RX route is added via VPP's ip route add
+ * commands, a next node is dynamically added to the ip*-lookup's next nodes.
+ * DPO_INTERFACE_RX is one of many DPO types which are not in the default
+ * next node list. The dynamic next node updates ensure dpoi_next_node always
+ * refers to a valid next node index. In the case of fwabf where the dynamic
+ * next node addition is not happenning, the dpoi_next_node is referring to
+ * an invalid next node index and leads to invalid access
+ */
+#define FWABF_IP4_LOOKUP_NEXT_NODES {                           \
+    [IP_LOOKUP_NEXT_DROP] = "ip4-drop",                         \
+    [IP_LOOKUP_NEXT_PUNT] = "ip4-punt",                         \
+    [IP_LOOKUP_NEXT_LOCAL] = "ip4-local",                       \
+    [IP_LOOKUP_NEXT_ARP] = "ip4-arp",                           \
+    [IP_LOOKUP_NEXT_GLEAN] = "ip4-glean",                       \
+    [IP_LOOKUP_NEXT_REWRITE] = "ip4-rewrite",                   \
+    [IP_LOOKUP_NEXT_MCAST] = "ip4-rewrite-mcast",               \
+    [IP_LOOKUP_NEXT_BCAST] = "ip4-rewrite-bcast",               \
+    [IP_LOOKUP_NEXT_MIDCHAIN] = "ip4-midchain",                 \
+    [IP_LOOKUP_NEXT_MCAST_MIDCHAIN] = "ip4-mcast-midchain",     \
+    [IP_LOOKUP_NEXT_ICMP_ERROR] = "ip4-icmp-error",             \
+    [IP_LOOKUP_N_NEXT] = "ip4-lookup"                           \
+}
+
+#define FWABF_IP6_LOOKUP_NEXT_NODES {                          \
+    [IP_LOOKUP_NEXT_DROP] = "ip6-drop",                        \
+    [IP_LOOKUP_NEXT_PUNT] = "ip6-punt",                        \
+    [IP_LOOKUP_NEXT_LOCAL] = "ip6-local",                      \
+    [IP_LOOKUP_NEXT_ARP] = "ip6-discover-neighbor",            \
+    [IP_LOOKUP_NEXT_GLEAN] = "ip6-glean",                      \
+    [IP_LOOKUP_NEXT_REWRITE] = "ip6-rewrite",                  \
+    [IP_LOOKUP_NEXT_BCAST] = "ip6-rewrite-bcast",              \
+    [IP_LOOKUP_NEXT_MCAST] = "ip6-rewrite-mcast",              \
+    [IP_LOOKUP_NEXT_MIDCHAIN] = "ip6-midchain",                \
+    [IP_LOOKUP_NEXT_MCAST_MIDCHAIN] = "ip6-mcast-midchain",    \
+    [IP_LOOKUP_NEXT_ICMP_ERROR] = "ip6-icmp-error",            \
+    [IP6_LOOKUP_NEXT_HOP_BY_HOP] = "ip6-hop-by-hop",           \
+    [IP6_LOOKUP_NEXT_ADD_HOP_BY_HOP] = "ip6-add-hop-by-hop",   \
+    [IP6_LOOKUP_NEXT_POP_HOP_BY_HOP] = "ip6-pop-hop-by-hop",   \
+    [IP6_LOOKUP_N_NEXT] = "ip6-lookup"                         \
+}
+
+
 /* *INDENT-OFF* */
 VLIB_REGISTER_NODE (fwabf_ip4_node) =
 {
@@ -893,8 +953,8 @@ VLIB_REGISTER_NODE (fwabf_ip4_node) =
   .type = VLIB_NODE_TYPE_INTERNAL,
   .n_errors = FWABF_N_ERROR,
   .error_strings = fwabf_error_strings,
-  .n_next_nodes = IP_LOOKUP_N_NEXT,
-  .next_nodes = IP4_LOOKUP_NEXT_NODES,
+  .n_next_nodes = IP_LOOKUP_N_NEXT + 1,
+  .next_nodes = FWABF_IP4_LOOKUP_NEXT_NODES,
 };
 
 VLIB_REGISTER_NODE (fwabf_ip6_node) =
@@ -905,8 +965,8 @@ VLIB_REGISTER_NODE (fwabf_ip6_node) =
   .format_trace = format_fwabf_input_trace,
   .type = VLIB_NODE_TYPE_INTERNAL,
   .n_errors = 0,
-  .n_next_nodes = IP6_LOOKUP_N_NEXT,
-  .next_nodes = IP6_LOOKUP_NEXT_NODES,
+  .n_next_nodes = IP6_LOOKUP_N_NEXT + 1,
+  .next_nodes = FWABF_IP6_LOOKUP_NEXT_NODES,
 };
 
 VNET_FEATURE_INIT (abf_ip4_feat, static) =
