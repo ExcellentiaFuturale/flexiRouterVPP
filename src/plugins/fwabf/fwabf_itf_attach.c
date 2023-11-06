@@ -693,7 +693,7 @@ fwabf_input_ip6 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
         {
           const u32*            attachments0;
           const fwabf_itf_attach_t* fia0 = 0;
-          ip_lookup_next_t      next0 = IP6_LOOKUP_N_NEXT;
+          ip6_lookup_next_t      next0 = IP6_LOOKUP_N_NEXT;
           vlib_buffer_t*        b0;
           fa_5tuple_opaque_t    fa_5tuple0;
           const dpo_id_t*       dpo0;
@@ -842,7 +842,7 @@ fwabf_input_ip6 (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * fr
                   if (PREDICT_FALSE(ip60->protocol == IP_PROTOCOL_IP6_HOP_BY_HOP_OPTIONS))
                     {
                       next0 = (dpo_is_adj (dpo0) && im->hbh_enabled) ?
-                        (ip_lookup_next_t) IP6_LOOKUP_NEXT_HOP_BY_HOP : next0;
+                        (ip6_lookup_next_t) IP6_LOOKUP_NEXT_HOP_BY_HOP : next0;
                     }
                 }
             }
