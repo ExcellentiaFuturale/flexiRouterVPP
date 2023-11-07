@@ -10,7 +10,7 @@
 # or subport profile. For example, An use case is to change the pipe and / or
 # subport bandwidth without creating a new profile.
 diff --git a/lib/librte_sched/rte_sched.c b/lib/librte_sched/rte_sched.c
-index 7c56880681..74d4127dd2 100644
+index 7c56880681..c536db780a 100644
 --- a/lib/librte_sched/rte_sched.c
 +++ b/lib/librte_sched/rte_sched.c
 @@ -1453,13 +1453,18 @@ rte_sched_subport_pipe_profile_add(struct rte_sched_port *port,
@@ -18,7 +18,7 @@ index 7c56880681..74d4127dd2 100644
  	rte_sched_pipe_profile_convert(s, params, pp, port->rate);
  
 -	/* Pipe profile should not exists */
-+	/* 
++	/*
 +	 * Different profiles with same parameters is possible in certain use
 +	 * cases where the profile's bandwidth keep changing over a period of
 +	 * time
@@ -93,7 +93,28 @@ index 7c56880681..74d4127dd2 100644
  int
  rte_sched_port_subport_profile_add(struct rte_sched_port *port,
  	struct rte_sched_subport_profile_params *params,
-@@ -1539,6 +1597,51 @@ rte_sched_port_subport_profile_add(struct rte_sched_port *port,
+@@ -1521,7 +1579,11 @@ rte_sched_port_subport_profile_add(struct rte_sched_port *port,
+ 
+ 	rte_sched_subport_profile_convert(params, dst, port->rate);
+ 
+-	/* Subport profile should not exists */
++	/*
++	 * Different profiles with same parameters is possible in certain use
++	 * cases where the profile's bandwidth keep changing over a period of
++	 * time
++	// Subport profile should not exists
+ 	for (i = 0; i < port->n_subport_profiles; i++)
+ 		if (memcmp(port->subport_profiles + i,
+ 		    dst, sizeof(*dst)) == 0) {
+@@ -1529,6 +1591,7 @@ rte_sched_port_subport_profile_add(struct rte_sched_port *port,
+ 			"%s: subport profile exists\n", __func__);
+ 			return -EINVAL;
+ 		}
++        */
+ 
+ 	/* Subport profile commit */
+ 	*subport_profile_id = port->n_subport_profiles;
+@@ -1539,6 +1602,51 @@ rte_sched_port_subport_profile_add(struct rte_sched_port *port,
  	return 0;
  }
  
