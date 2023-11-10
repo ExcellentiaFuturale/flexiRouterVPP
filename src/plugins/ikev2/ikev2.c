@@ -84,10 +84,17 @@ ikev2_delete_child_sa_internal (vlib_main_t * vm, ikev2_sa_t * sa,
 				ikev2_child_sa_t * csa, u8 cleanup);
 #endif
 
+#ifdef FLEXIWAN_FEATURE
+#define ikev2_set_state(sa, v, ...) do { \
+    (sa)->state = v; \
+    clib_warning("ispi %lx SA state changed to " #v __VA_ARGS__, sa->ispi); \
+  } while(0);
+#else
 #define ikev2_set_state(sa, v, ...) do { \
     (sa)->state = v; \
     ikev2_elog_sa_state("ispi %lx SA state changed to " #v __VA_ARGS__, sa->ispi); \
   } while(0);
+#endif
 
 typedef struct
 {
